@@ -1,0 +1,82 @@
+/* global Buffer */
+import {
+  httpError, readRaw, blobToken, databaseUrl,
+  loadAll, saveFile, attachFile, deleteFile, fileForDownload,
+  savePrinter, saveMaterial, deleteProfile,
+  saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX,
+} from './_lib/printhub.js'
+
+// /api/state                    GET     files + printers + materials + storage mode
+// /api/files                    PUT     save one file's details;  DELETE ?id=
+// /api/attach                   POST    {id, pathname} after a file upload finishes
+// /api/upload                   POST    Vercel Blob client-upload handshake
+// /api/local-file?id=&name=     PUT     raw file body (developer's computer only)
+// /api/file?id=                 GET     download the stored file
+// /api/printers | materials     PUT     save one row;  DELETE ?id=
+export default async function handler(req, res) {
+  const resource = req.query.resource
+  const method = req.method
+
+  // Download a stored file (a plain link, so the browser saves it directly)
+  if (resource === 'file' && method === 'GET') {
+    try {
+      const row = await fileForDownload(req.query.id)
+      const { stream, size } = await openStored(row.blob_path)
+      const filename = `${row.name}.${row.ext}`.replace(/["\\\r\n]/g, '_')
+      res.setHeader('content-type', 'application/octet-stream')
+      res.setHeader('content-disposition', `attachment; filename="${filename.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`)
+      res.setHeader('cache-control', 'private, no-store')
+      if (size) res.setHeader('content-length', String(size))
+      stream.on('error', () => res.destroy())
+      return stream.pipe(res)
+    } catch (e) {
+      return res.status(e.status || 500).json({ error: e.status ? e.message : 'Server error' })
+    }
+  }
+
+  if (!databaseUrl()) return res.status(503).json({ error: 'DATABASE_URL not set' })
+
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) && !Buffer.isBuffer(req.body) ? req.body : {}
+
+  try {
+    if (resource === 'state' && method === 'GET') return res.json(await loadAll())
+
+    if (resource === 'files') {
+      if (method === 'PUT') return res.json(await saveFile(body))
+      if (method === 'DELETE') return res.json(await deleteFile(req.query.id))
+    }
+
+    if (resource === 'attach' && method === 'POST') return res.json(await attachFile(body.id, body.pathname))
+
+    if (resource === 'upload' && method === 'POST') {
+      if (!blobToken()) throw httpError(503, 'File storage (Vercel Blob) is not turned on')
+      const { handleUpload } = await import('@vercel/blob/client')
+      const result = await handleUpload({
+        body,
+        request: req,
+        token: blobToken(),
+        onBeforeGenerateToken: async (pathname) => {
+          if (!String(pathname).startsWith(BLOB_PREFIX)) throw httpError(400, 'Bad file path')
+          return { maximumSizeInBytes: MAX_FILE_BYTES, addRandomSuffix: true }
+        },
+      })
+      return res.json(result)
+    }
+
+    if (resource === 'local-file' && method === 'PUT') {
+      const buf = await readRaw(req, MAX_FILE_BYTES)
+      return res.json(await saveLocal(req.query.id, String(req.query.name || ''), buf))
+    }
+
+    if (resource === 'printers' || resource === 'materials') {
+      const kind = resource === 'printers' ? 'printer' : 'material'
+      if (method === 'PUT') return res.json(kind === 'printer' ? await savePrinter(body) : await saveMaterial(body))
+      if (method === 'DELETE') return res.json(await deleteProfile(kind, req.query.id))
+    }
+
+    return res.status(404).json({ error: 'Not found' })
+  } catch (e) {
+    if (!e.status) console.error(e)
+    return res.status(e.status || 500).json({ error: e.status ? e.message : 'Server error' })
+  }
+}

@@ -1,0 +1,46 @@
+# Print Hub
+
+A personal catalog for 3D-print files. Drag STL, 3MF, OBJ, STEP or G-code files
+in, sort them into **Functional parts / Household / Tools**, tag and favorite
+them, and log every print (printer, material, temperatures, supports, success or
+fail). Printers and Materials are editable lists under Settings; picking a
+material when logging a print fills in its temperatures.
+
+## Where things are stored
+
+- **The catalog** (files, tags, print logs, printers, materials) is in a Postgres
+  database (Neon). The tables are created automatically the first time the app
+  runs (`db/schema.sql`).
+- **The 3D files themselves** are in Vercel Blob, up to 500 MB each. Uploads go
+  straight from the browser to Blob storage.
+- There's no PIN or login: anyone with the address can open it.
+
+## Setting it up on Vercel
+
+1. Import this repository as a new Vercel project (framework: Vite).
+2. In the project's **Storage** tab, create a **Neon** database and connect it.
+   That sets `DATABASE_URL`.
+3. In the same tab, create a **Blob** store (private) and connect it. That sets
+   `BLOB_READ_WRITE_TOKEN`.
+4. Redeploy.
+
+## Running it on your own computer
+
+```bash
+npm install
+echo "DATABASE_URL=postgres://..." > .env   # any Postgres database
+npm run dev                                 # http://localhost:5180
+```
+
+Without a Blob token, files are saved in `db/.local-files/` instead.
+
+## Code
+
+| Path | What it is |
+|---|---|
+| `src/PrintHub.jsx` | The whole screen: catalog, file panel, print log, printers, materials |
+| `src/printhub.css` | All the styling |
+| `src/store.js` | Talks to the server and uploads files |
+| `api/[resource].js` | The server routes (`/api/state`, `/api/files`, …) |
+| `api/_lib/printhub.js` | Database and file-storage code |
+| `dev-server.js` | Runs the server routes locally for `npm run dev` |
