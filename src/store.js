@@ -60,3 +60,8 @@ export async function fetchStoredFile(id) {
   if (!res.ok) throw new Error(`Download failed (${res.status})`)
   return res.blob()
 }
+
+// ---------- deleting + Mac cleanup list ----------
+
+export const deleteFiles = (ids) => call('delete-files', json('POST', { ids }))
+export const markRemoved = (ids) => call('removed', json('POST', { ids }))

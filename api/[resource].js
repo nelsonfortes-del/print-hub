@@ -1,7 +1,7 @@
 /* global Buffer */
 import {
   httpError, readRaw, blobToken, databaseUrl,
-  loadAll, saveFile, attachFile, deleteFile, fileForDownload,
+  loadAll, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload,
   savePrinter, saveMaterial, saveProject, deleteProfile,
   saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb,
 } from './_lib/printhub.js'
@@ -12,6 +12,8 @@ import {
 // /api/upload                   POST    Vercel Blob client-upload handshake
 // /api/local-file?id=&name=     PUT     raw file body (developer's computer only)
 // /api/file?id=                 GET     download the stored file
+// /api/delete-files            POST    {ids} delete several (adds them to the Mac cleanup list)
+// /api/removed                  POST    {ids} mark cleanup-list entries as handled
 // /api/thumb?id=&v=             GET     preview picture;  PUT {id, type, data(base64)}
 // /api/printers | materials | projects  PUT     save one row;  DELETE ?id=
 export default async function handler(req, res) {
@@ -59,6 +61,9 @@ export default async function handler(req, res) {
       if (method === 'PUT') return res.json(await saveFile(body))
       if (method === 'DELETE') return res.json(await deleteFile(req.query.id))
     }
+
+    if (resource === 'delete-files' && method === 'POST') return res.json(await deleteFiles(body.ids))
+    if (resource === 'removed' && method === 'POST') return res.json(await markRemoved(body.ids))
 
     if (resource === 'thumb' && method === 'PUT') return res.json(await saveThumb(body))
 

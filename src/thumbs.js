@@ -13,22 +13,29 @@ const MAX_GCODE_RENDER_BYTES = 25 * 1024 * 1024
 
 export const canThumb = (ext) => ['stl', 'obj', '3mf', 'gcode'].includes(ext)
 
+// Returns a picture Blob, or throws an Error whose message says why not
+// (shown in the file panel so problems are visible).
 export async function makeThumb(blob, ext) {
+  if (ext === 'step') throw new Error("STEP files can't be drawn in the browser")
+  if (ext === '3mf') {
+    const pic = await picFrom3mf(blob).catch(() => null)
+    if (pic) return pic
+  }
+  if (ext === 'gcode') {
+    const pic = await picFromGcode(blob).catch(() => null)
+    if (pic) return pic
+    if (blob.size > MAX_GCODE_RENDER_BYTES) throw new Error('G-code over 25 MB with no built-in preview is too big to draw')
+  }
+  if (!canThumb(ext)) throw new Error(`No preview for .${ext} files`)
+  if (blob.size > MAX_RENDER_BYTES) throw new Error('File is over 80 MB, too big to draw in the browser')
   try {
-    if (ext === '3mf') {
-      const pic = await picFrom3mf(blob)
-      if (pic) return pic
-    }
-    if (ext === 'gcode') {
-      const pic = await picFromGcode(blob)
-      if (pic) return pic
-      if (blob.size > MAX_GCODE_RENDER_BYTES) return null
-    }
-    if (!canThumb(ext) || blob.size > MAX_RENDER_BYTES) return null
-    return await render(blob, ext)
+    const pic = await render(blob, ext)
+    if (!pic) throw new Error('The browser returned an empty picture')
+    return pic
   } catch (e) {
-    console.warn('Print Hub: no preview for this file', e)
-    return null
+    const msg = String(e?.message || e)
+    if (/webgl|context/i.test(msg)) throw new Error('3D drawing (WebGL) is turned off or unavailable in this browser')
+    throw new Error(`Couldn't draw this file: ${msg}`)
   }
 }
 

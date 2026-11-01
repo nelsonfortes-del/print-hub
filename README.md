@@ -29,7 +29,15 @@ are non-3D files and Mac junk like `.DS_Store`. See `src/collect.js`.
 which is used as-is. Otherwise the model is drawn in 3D with three.js (STL, OBJ,
 3MF, G-code). STEP files get no picture. Pictures are stored in the database
 (`ph_files.thumb`) and files added before this feature get theirs filled in
-automatically the next time the page is open. The starting
+automatically the next time the page is open. If a preview can't be made, the
+file panel says why and has a **Try again** button.
+
+**Deleting and Mac cleanup:** delete one file from its panel, or use **Select**
+to pick many and delete them together. Deleted files go on the **Mac cleanup**
+list (Settings), with the folder they came from. The page makes a script
+(`src/cleanup.js`) you run in Terminal with `bash`: it finds files in your home
+folder with the exact same name and size, lists them, asks, and moves them to
+the Trash (Put Back still works). Then press **Mark all as done**. The starting
 printers, filament and projects come from Nelson's 3D printing notes and are
 loaded once; after that, everything is edited in the app.
 

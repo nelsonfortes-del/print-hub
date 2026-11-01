@@ -60,3 +60,18 @@ alter table ph_projects add column if not exists keywords text not null default 
 alter table ph_files add column if not exists thumb bytea;
 alter table ph_files add column if not exists thumb_type text;
 alter table ph_files add column if not exists thumb_v bigint not null default 0;
+
+-- Where a file came from on the computer it was uploaded from ("labels/hits/x.stl")
+alter table ph_files add column if not exists source_path text;
+
+-- Files deleted in Print Hub, so the Mac cleanup script can trash the
+-- originals too. "cleaned" = handled on the Mac (or kept on purpose).
+create table if not exists ph_removed (
+  id text primary key,
+  name text not null default '',
+  ext text not null default '',
+  size bigint not null default 0,
+  source_path text,
+  removed_at bigint not null default 0,
+  cleaned boolean not null default false
+);

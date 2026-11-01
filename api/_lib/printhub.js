@@ -191,13 +191,14 @@ const fileRow = (r) => ({
   hasFile: !!r.blob_path,
   projectId: r.project_id || null,
   thumbV: r.has_thumb ? Number(r.thumb_v) || 1 : 0,
+  sourcePath: r.source_path || null,
 })
 
 // ---------- reads ----------
 
 export async function loadAll() {
   const [files, printers, materials, projects] = await Promise.all([
-    q(`select id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, thumb_v, (thumb is not null) as has_thumb
+    q(`select id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, source_path, thumb_v, (thumb is not null) as has_thumb
        from ph_files order by added desc, id`),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
@@ -208,6 +209,7 @@ export async function loadAll() {
     printers,
     materials: materials.map((m) => ({ ...m, nozzle: m.nozzle ?? '', bed: m.bed ?? '', fan: m.fan ?? '' })),
     projects,
+    removed: await listRemoved(),
     storage: storageMode(),
   }
 }
@@ -225,15 +227,16 @@ export async function saveFile(body) {
     CATS.includes(body.category) ? body.category : CATS[1],
     JSON.stringify(tags), !!body.fav, Number(body.added) || Date.now(), JSON.stringify(prints),
     body.projectId ? okId(body.projectId) : null,
+    body.sourcePath ? str(body.sourcePath, 1000) : null,
   ]
   // blob_path is only ever set by attachFile, never from the browser.
   const [saved] = await q(
-    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id)
-     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10)
+    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id, source_path)
+     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11)
      on conflict (id) do update set name = excluded.name, ext = excluded.ext, size = excluded.size,
        category = excluded.category, tags = excluded.tags, fav = excluded.fav, prints = excluded.prints,
-       project_id = excluded.project_id, updated_at = now()
-     returning id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, thumb_v, (thumb is not null) as has_thumb`, row)
+       project_id = excluded.project_id, source_path = coalesce(excluded.source_path, ph_files.source_path), updated_at = now()
+     returning id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, source_path, thumb_v, (thumb is not null) as has_thumb`, row)
   return fileRow(saved)
 }
 
@@ -273,10 +276,31 @@ export async function readThumb(id) {
   return { data, type: row.thumb_type || 'image/png' }
 }
 
-export async function deleteFile(id) {
-  id = okId(id)
-  const [row] = await q('delete from ph_files where id = $1 returning blob_path', [id])
-  if (row?.blob_path) await removeStored(row.blob_path)
+// Deleting also adds the file to the Mac cleanup list (ph_removed).
+export async function deleteFiles(ids) {
+  ids = (Array.isArray(ids) ? ids : [ids]).slice(0, 1000).map(okId)
+  if (!ids.length) return { ok: true, deleted: 0 }
+  const rows = await q('delete from ph_files where id = any($1::text[]) returning id, name, ext, size, source_path, blob_path', [ids])
+  const now = Date.now()
+  for (const r of rows) {
+    await q(`insert into ph_removed (id, name, ext, size, source_path, removed_at) values ($1,$2,$3,$4,$5,$6)
+             on conflict (id) do update set removed_at = excluded.removed_at, cleaned = false`,
+      [r.id, r.name, r.ext, r.size, r.source_path, now])
+    if (r.blob_path) await removeStored(r.blob_path)
+  }
+  return { ok: true, deleted: rows.length }
+}
+export const deleteFile = (id) => deleteFiles([id])
+
+export async function listRemoved() {
+  const rows = await q('select id, name, ext, size, source_path, removed_at from ph_removed where not cleaned order by removed_at desc')
+  return rows.map((r) => ({ id: r.id, name: r.name, ext: r.ext, size: Number(r.size), sourcePath: r.source_path, removedAt: Number(r.removed_at) }))
+}
+
+// "done": handled on the Mac.  "keep": leave it on the Mac, drop from the list.
+export async function markRemoved(ids) {
+  ids = (Array.isArray(ids) ? ids : []).slice(0, 5000).map(okId)
+  if (ids.length) await q('update ph_removed set cleaned = true where id = any($1::text[])', [ids])
   return { ok: true }
 }
 

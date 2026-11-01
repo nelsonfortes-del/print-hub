@@ -3,8 +3,9 @@ import './printhub.css'
 import { matchProject, normalize } from './autosort'
 import { grabDropped, fromPicker, expand } from './collect'
 import { makeThumb, canThumb } from './thumbs'
+import { cleanupScript, downloadText } from './cleanup'
 import {
-  loadAll, saveFile, deleteFile, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile,
+  loadAll, saveFile, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved,
 } from './store'
 
 // Print Hub: a catalog of 3D-print files with a print log per file, plus
@@ -49,6 +50,9 @@ export default function PrintHub() {
   const [printers, setPrinters] = useState([])
   const [materials, setMaterials] = useState([])
   const [projects, setProjects] = useState([])
+  const [removed, setRemoved] = useState([]) // Mac cleanup list
+  const [selecting, setSelecting] = useState(false)
+  const [picked, setPicked] = useState(() => new Set())
   const [draft, setDraft] = useState(() => ({ printer: '', material: 'PLA', nozzle: 215, bed: 60, supports: 'None', result: 'Success', ...(readDraft() || {}) }))
   const [uploading, setUploading] = useState({}) // file id -> percent
 
@@ -67,10 +71,10 @@ export default function PrintHub() {
   const filesRef = useRef(files)
   useEffect(() => { filesRef.current = files }, [files])
 
-  const showToast = useCallback((msg) => {
+  const showToast = useCallback((msg, ms = 2600) => {
     setToast(msg)
     clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), 2600)
+    toastTimer.current = setTimeout(() => setToast(null), ms)
   }, [])
   const saveFailed = useCallback((e) => showToast(e?.message ? `Couldn't save: ${e.message}` : "Couldn't save. Check your connection."), [showToast])
 
@@ -80,6 +84,7 @@ export default function PrintHub() {
     setPrinters(data.printers)
     setMaterials(data.materials)
     setProjects(data.projects || [])
+    setRemoved(data.removed || [])
     setDraft((d) => (data.printers.some((p) => p.name === d.printer) ? d : { ...d, printer: data.printers[0]?.name || '' }))
     setLoad({ state: 'ready', error: '' })
   }, [])
@@ -107,32 +112,47 @@ export default function PrintHub() {
   const thumbTried = useRef(new Set())
   const thumbBusy = useRef(false)
   const [thumbProgress, setThumbProgress] = useState(null) // { done, total }
+  const [thumbErrors, setThumbErrors] = useState({}) // file id -> why its preview failed
   const runThumbs = useCallback(async () => {
     if (thumbBusy.current) return
     thumbBusy.current = true
     let done = 0
+    let failed = 0
+    let lastError = ''
     try {
       while (thumbQueue.current.length) {
         setThumbProgress({ done, total: done + thumbQueue.current.length })
         const job = thumbQueue.current.shift()
         thumbTried.current.add(job.id)
         try {
-          const blob = job.blob || await fetchStoredFile(job.id)
-          const pic = await makeThumb(blob, job.ext)
-          if (pic) {
-            const { thumbV } = await saveThumb(job.id, pic)
-            setFiles((fs) => fs.map((f) => (f.id === job.id ? { ...f, thumbV } : f)))
+          let blob = job.blob
+          if (!blob) {
+            try { blob = await fetchStoredFile(job.id) } catch (e) { throw new Error(`Couldn't download the file to draw it (${e.message})`) }
           }
+          const pic = await makeThumb(blob, job.ext)
+          let saved
+          try { saved = await saveThumb(job.id, pic) } catch (e) { throw new Error(`Drew the preview but couldn't save it (${e.message})`) }
+          setFiles((fs) => fs.map((f) => (f.id === job.id ? { ...f, thumbV: saved.thumbV } : f)))
+          setThumbErrors((m) => { const n = { ...m }; delete n[job.id]; return n })
         } catch (e) {
           console.warn('Print Hub: preview failed for', job.id, e)
+          failed++
+          lastError = e.message
+          setThumbErrors((m) => ({ ...m, [job.id]: e.message }))
         }
         done++
       }
     } finally {
       thumbBusy.current = false
       setThumbProgress(null)
+      if (failed) showToast(`${failed} preview${failed === 1 ? '' : 's'} couldn't be made: ${lastError}`, 8000)
     }
-  }, [])
+  }, [showToast])
+  const retryThumb = (f) => {
+    setThumbErrors((m) => { const n = { ...m }; delete n[f.id]; return n })
+    thumbQueue.current.push({ id: f.id, ext: f.ext })
+    runThumbs()
+  }
   useEffect(() => {
     if (load.state !== 'ready') return
     const missing = files.filter((f) => f.hasFile && !f.thumbV && canThumb(f.ext) && !thumbTried.current.has(f.id)
@@ -181,6 +201,7 @@ export default function PrintHub() {
           id: uid('f'), name: parts.join('.'),
           ext: ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext,
           size: f.size, category: pr ? pr.category : fallbackCat, projectId: pr?.id || null, tags: folderTag ? [folderTag] : [], fav: false, prints: [], added: Date.now(), hasFile: false,
+          sourcePath: folder ? `${folder}/${f.name}` : f.name,
         },
         file: f,
       }
@@ -292,6 +313,21 @@ export default function PrintHub() {
   }
   const openProject = (id) => { setProject(id); setCat('All'); setTag(null); setView('catalog') }
   const projectName = (id) => projects.find((p) => p.id === id)?.name
+  // Delete one or many; they go on the Mac cleanup list
+  const removeFiles = (ids) => {
+    const gone = filesRef.current.filter((f) => ids.includes(f.id))
+    if (!gone.length) return
+    const label = gone.length === 1 ? `"${gone[0].name}"` : `${gone.length} files`
+    if (!window.confirm(`Delete ${label} from Print Hub? They'll be added to the Mac cleanup list.`)) return
+    setFiles((fs) => fs.filter((f) => !ids.includes(f.id)))
+    setRemoved((r) => [...gone.map((f) => ({ id: f.id, name: f.name, ext: f.ext, size: f.size, sourcePath: f.sourcePath || null, removedAt: Date.now() })), ...r.filter((x) => !ids.includes(x.id))])
+    setSel(null)
+    setPicked(new Set())
+    setSelecting(false)
+    deleteFiles(ids).then(() => showToast(`Deleted ${label} · added to Mac cleanup`)).catch(saveFailed)
+  }
+  const togglePick = (id) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n })
+
   const toggleFav = (id) => updateFile(id, (f) => ({ ...f, fav: !f.fav }))
 
   const ql = q.trim().toLowerCase()
@@ -359,6 +395,7 @@ export default function PrintHub() {
             <div className="ph-label">Settings</div>
             <NavItem label="Printers" count={printers.length} active={view === 'printers'} onClick={() => setView('printers')} />
             <NavItem label="Materials" count={materials.length} active={view === 'materials'} onClick={() => setView('materials')} />
+            <NavItem label="Mac cleanup" count={removed.length} active={view === 'cleanup'} onClick={() => setView('cleanup')} />
           </nav>
           {view === 'catalog' && allTags.length > 0 && (
             <div className="ph-tags-block">
@@ -397,8 +434,21 @@ export default function PrintHub() {
                     </>
                   )}
                 </div>
-                <div className="ph-hint">Drop 3D files, folders or .zip files anywhere</div>
+                <div className="ph-head-actions">
+                  <div className="ph-hint">Drop 3D files, folders or .zip files anywhere</div>
+                  {shown.length > 0 && !selecting && <button className="ph-btn-sm" onClick={() => setSelecting(true)}>Select</button>}
+                </div>
               </div>
+              {selecting && (
+                <div className="ph-select-bar">
+                  <strong>{picked.size} selected</strong>
+                  <button className="ph-btn-sm" onClick={() => setPicked(new Set(shown.map((f) => f.id)))}>Select all {shown.length}</button>
+                  {picked.size > 0 && <button className="ph-btn-sm" onClick={() => setPicked(new Set())}>Clear</button>}
+                  <div style={{ flex: 1 }} />
+                  <button className="ph-btn-sm ph-danger" disabled={!picked.size} onClick={() => removeFiles([...picked])}>Delete {picked.size || ''}</button>
+                  <button className="ph-btn-sm" onClick={() => { setSelecting(false); setPicked(new Set()) }}>Done</button>
+                </div>
+              )}
               {activeProject?.notes && <div className="ph-project-notes">{activeProject.notes}</div>}
               {cat === 'Unsorted' && !activeProject && shown.length > 0 && (
                 <div className="ph-project-notes">These files didn't match any project's keywords. Open one to pick a project, or add keywords on the Projects page.</div>
@@ -408,8 +458,10 @@ export default function PrintHub() {
                   {shown.map((f) => {
                     const st = status(f)
                     return (
-                      <div key={f.id} className="ph-card" role="button" tabIndex={0}
-                        onClick={() => setSel(f.id)} onKeyDown={(e) => e.key === 'Enter' && setSel(f.id)}>
+                      <div key={f.id} className={'ph-card' + (selecting && picked.has(f.id) ? ' is-picked' : '')} role="button" tabIndex={0}
+                        onClick={() => (selecting ? togglePick(f.id) : setSel(f.id))}
+                        onKeyDown={(e) => e.key === 'Enter' && (selecting ? togglePick(f.id) : setSel(f.id))}>
+                        {selecting && <span className="ph-check" aria-hidden="true">{picked.has(f.id) ? '✓' : ''}</span>}
                         <div className={'ph-thumb' + (f.thumbV ? ' has-img' : '')}>
                           {f.thumbV
                             ? <><img className="ph-thumb-img" src={thumbUrl(f.id, f.thumbV)} alt="" loading="lazy" /><span className="ph-badge ph-badge-corner">{f.ext.toUpperCase()}</span></>
@@ -470,6 +522,14 @@ export default function PrintHub() {
             />
           )}
 
+          {load.state === 'ready' && view === 'cleanup' && (
+            <CleanupPage
+              removed={removed}
+              onDownload={() => downloadText('print-hub-cleanup.sh', cleanupScript(removed))}
+              onDone={(ids) => { setRemoved((r) => r.filter((x) => !ids.includes(x.id))); markRemoved(ids).catch(saveFailed) }}
+            />
+          )}
+
           {load.state === 'ready' && view === 'materials' && (
             <ProfileTable
               title="Materials" addLabel="Add material"
@@ -504,17 +564,14 @@ export default function PrintHub() {
           key={selected.id}
           file={selected}
           uploadPct={uploading[selected.id]}
+          thumbError={thumbErrors[selected.id]}
+          thumbBusy={!!thumbProgress}
+          onRetryThumb={() => retryThumb(selected)}
           printers={printers} materials={materials} projects={projects}
           draft={draft} setDraft={setDraft}
           onClose={() => setSel(null)}
           onFav={() => toggleFav(selected.id)}
-          onDelete={() => {
-            if (!window.confirm(`Delete "${selected.name}"? This can't be undone.`)) return
-            const id = selected.id
-            setFiles((fs) => fs.filter((f) => f.id !== id))
-            setSel(null)
-            deleteFile(id).then(() => showToast('File deleted')).catch(saveFailed)
-          }}
+          onDelete={() => removeFiles([selected.id])}
           update={(fn) => updateFile(selected.id, fn)}
           showToast={showToast}
         />
@@ -567,7 +624,7 @@ function ProfileTable({ title, addLabel, sub, minWidth, cols, headers, kind, row
   )
 }
 
-function Drawer({ file, uploadPct, printers, materials, projects, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
+function Drawer({ file, uploadPct, thumbError, thumbBusy, onRetryThumb, printers, materials, projects, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
   const [tagInput, setTagInput] = useState('')
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }))
   const printerOpts = [...new Set([...printers.map((p) => p.name).filter(Boolean), draft.printer].filter(Boolean))]
@@ -602,7 +659,16 @@ function Drawer({ file, uploadPct, printers, materials, projects, draft, setDraf
           <div className={'ph-preview' + (file.thumbV ? ' has-img' : '')}>
             {file.thumbV
               ? <img className="ph-thumb-img" src={thumbUrl(file.id, file.thumbV)} alt={`Preview of ${file.name}`} />
-              : <span className="ph-badge ph-badge-lg">{file.ext === 'step' ? 'No preview for STEP files' : file.hasFile ? 'Making preview…' : 'No preview'}</span>}
+              : file.ext === 'step' ? <span className="ph-badge ph-badge-lg">No preview for STEP files</span>
+              : !file.hasFile ? <span className="ph-badge ph-badge-lg">No preview: the file itself wasn't stored</span>
+              : thumbError ? (
+                <div className="ph-preview-error">
+                  <div>Preview failed: {thumbError}</div>
+                  <button className="ph-btn-sm" onClick={onRetryThumb}>Try again</button>
+                </div>
+              )
+              : thumbBusy ? <span className="ph-badge ph-badge-lg">Making preview…</span>
+              : <button className="ph-btn-sm" onClick={onRetryThumb}>Make preview</button>}
           </div>
 
           <div className="ph-col4">
@@ -803,6 +869,61 @@ function ProjectsPage({ projects, files, onEdit, onRemove, onAdd, onOpen }) {
           </section>
         )
       })}
+    </>
+  )
+}
+
+function CleanupPage({ removed, onDownload, onDone }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <>
+      <div className="ph-head-row" style={{ marginBottom: 6 }}>
+        <h1 className="ph-h1">Mac cleanup</h1>
+      </div>
+      <div className="ph-sub">Files you delete here are listed below so you can remove the originals from your Mac too.</div>
+      {removed.length === 0 ? (
+        <div className="ph-empty">
+          <div className="ph-empty-title">Nothing to clean up</div>
+          <div>When you delete files in Print Hub, they show up here.</div>
+        </div>
+      ) : (
+        <>
+          <ol className="ph-steps">
+            <li>
+              <button className="ph-btn-primary" onClick={onDownload}>Download cleanup script</button>
+              <span className="ph-muted13"> for these {removed.length} file{removed.length === 1 ? '' : 's'}</span>
+            </li>
+            <li>
+              Open <strong>Terminal</strong> on your Mac, type <code className="ph-code">bash </code> (with a space), drag the downloaded
+              file into the window, and press Return.
+              <button className="ph-btn-sm" style={{ marginLeft: 8 }}
+                onClick={() => { navigator.clipboard?.writeText('bash ~/Downloads/print-hub-cleanup.sh'); setCopied(true) }}>
+                {copied ? 'Copied' : 'Copy command'}
+              </button>
+            </li>
+            <li>It shows what it found and asks before moving anything to the Trash (you can still put files back from the Trash).</li>
+            <li>
+              When it's done: <button className="ph-btn-outline" onClick={() => onDone(removed.map((r) => r.id))}>Mark all as done</button>
+            </li>
+          </ol>
+          <div className="ph-table">
+            <div style={{ minWidth: 600 }}>
+              <div className="ph-tr ph-th ph-mono" style={{ gridTemplateColumns: '1.4fr 0.5fr 1.6fr 0.7fr 130px' }}>
+                <span>File</span><span>Size</span><span>Came from</span><span>Deleted</span><span />
+              </div>
+              {removed.map((r) => (
+                <div key={r.id} className="ph-tr ph-cleanup-row" style={{ gridTemplateColumns: '1.4fr 0.5fr 1.6fr 0.7fr 130px' }}>
+                  <span className="ph-ellipsis" style={{ fontWeight: 500 }}>{r.name}.{r.ext}</span>
+                  <span className="ph-mono ph-meta">{fmtSize(r.size)}</span>
+                  <span className="ph-mono ph-meta ph-ellipsis" title={r.sourcePath || ''}>{r.sourcePath || '—'}</span>
+                  <span className="ph-mono ph-meta">{fmtDate(r.removedAt)}</span>
+                  <button className="ph-btn-sm" title="Leave this file on the Mac and take it off the list" onClick={() => onDone([r.id])}>Keep on Mac</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </>
   )
 }
