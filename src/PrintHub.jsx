@@ -13,25 +13,28 @@ import {
 const CATS = ['Work', 'Personal']
 const STATUSES = ['Idea', 'In design', 'Ready to print', 'In progress', 'Works', 'Done', 'Stalled']
 const STATUS_COLOR = {
-  Idea: '#c9cfd8', 'In design': '#8a919c', 'Ready to print': '#2a5bd7', 'In progress': '#c98a1b',
-  Works: '#2f7d4f', Done: '#2f7d4f', Stalled: '#b8432f',
+  Idea: '#5b7194', 'In design': '#9aadc9', 'Ready to print': '#5b9bff', 'In progress': '#f0b44c',
+  Works: '#4cc38a', Done: '#4cc38a', Stalled: '#ff8370',
 }
 const EXTS = ['stl', '3mf', 'obj', 'step', 'stp', 'gcode', 'gco']
 const SUPPORTS = ['None', 'Buildplate only', 'Everywhere']
-const BLUE = '#2a5bd7'
+const BLUE = 'var(--accent-text)'
+const OK = '#4cc38a'
+const FAIL = '#ff8370'
+const GREY = '#5b7194'
 const DRAFT_KEY = 'printhub.lastDraft'
 
 const fmtSize = (b) => (b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB')
 const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 const segStyle = (active, kind) => {
   if (!active) return undefined
-  const c = kind === 'fail' ? '#b8432f' : kind === 'ok' ? '#2f7d4f' : BLUE
+  const c = kind === 'fail' ? '#c4432c' : kind === 'ok' ? '#23804f' : 'var(--accent)'
   return { background: c, borderColor: c, color: '#fff' }
 }
 const status = (f) => {
   const last = f.prints[0]
-  if (!last) return { label: 'Not printed', dot: '#c9cfd8' }
-  return last.result === 'Success' ? { label: 'Printed', dot: '#2f7d4f' } : { label: 'Failed', dot: '#b8432f' }
+  if (!last) return { label: 'Not printed', dot: GREY }
+  return last.result === 'Success' ? { label: 'Printed', dot: OK } : { label: 'Failed', dot: FAIL }
 }
 const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 const fetchLibrary = () => loadAll()
@@ -329,7 +332,7 @@ export default function PrintHub() {
                         onClick={() => setSel(f.id)} onKeyDown={(e) => e.key === 'Enter' && setSel(f.id)}>
                         <div className="ph-thumb">
                           <span className="ph-badge">{f.ext.toUpperCase()}</span>
-                          <button className="ph-fav" style={{ color: f.fav ? BLUE : '#636b78' }}
+                          <button className="ph-fav" style={{ color: f.fav ? BLUE : 'var(--muted)' }}
                             aria-label={f.fav ? 'Remove favorite' : 'Add favorite'}
                             onClick={(e) => { e.stopPropagation(); toggleFav(f.id) }}>{f.fav ? '★' : '☆'}</button>
                         </div>
@@ -408,7 +411,7 @@ export default function PrintHub() {
       {dragging && (
         <div className="ph-drop">
           <div className="ph-drop-title">{dropLabel}</div>
-          <div className="ph-mono" style={{ fontSize: 14, color: '#636b78' }}>STL · 3MF · OBJ · STEP · G-CODE</div>
+          <div className="ph-mono" style={{ fontSize: 14, color: 'var(--muted)' }}>STL · 3MF · OBJ · STEP · G-CODE</div>
         </div>
       )}
 
@@ -507,7 +510,7 @@ function Drawer({ file, uploadPct, printers, materials, projects, draft, setDraf
           <div style={{ flex: 1 }} />
           {uploadPct != null && <span className="ph-mono ph-meta">Uploading {uploadPct}%</span>}
           {file.hasFile && uploadPct == null && <a className="ph-btn-sm ph-btn-link" href={downloadUrl(file.id)} download>Download</a>}
-          <button className="ph-btn-sm" style={{ color: file.fav ? BLUE : '#1a1d23' }} onClick={onFav}>
+          <button className="ph-btn-sm" style={{ color: file.fav ? BLUE : 'var(--ink)' }} onClick={onFav}>
             {file.fav ? '★ Favorite' : '☆ Favorite'}
           </button>
           <button className="ph-btn-sm ph-danger" onClick={onDelete}>Delete</button>
@@ -625,7 +628,7 @@ function Drawer({ file, uploadPct, printers, materials, projects, draft, setDraf
             {file.prints.length === 0 && <div className="ph-muted13">No prints logged yet.</div>}
             {file.prints.map((p, i) => (
               <div key={p.date + '-' + i} className="ph-hist">
-                <span className="ph-dot8" style={{ background: p.result === 'Success' ? '#2f7d4f' : '#b8432f' }} />
+                <span className="ph-dot8" style={{ background: p.result === 'Success' ? OK : FAIL }} />
                 <div className="ph-hist-main">
                   <div className="ph-hist-top">
                     <span style={{ fontWeight: 500 }}>{p.result}</span>
@@ -650,7 +653,7 @@ function Drawer({ file, uploadPct, printers, materials, projects, draft, setDraf
 function StatusPill({ status }) {
   return (
     <span className="ph-status-pill">
-      <span className="ph-dot6" style={{ background: STATUS_COLOR[status] || '#c9cfd8' }} />{status}
+      <span className="ph-dot6" style={{ background: STATUS_COLOR[status] || GREY }} />{status}
     </span>
   )
 }
@@ -690,7 +693,7 @@ function ProjectsPage({ projects, files, onEdit, onRemove, onAdd, onOpen }) {
                       <button className="ph-x" aria-label="Delete project" onClick={() => onRemove(p.id)}>×</button>
                     </div>
                     <div className="ph-proj-row">
-                      <span className="ph-dot8" style={{ marginTop: 0, background: STATUS_COLOR[p.status] || '#c9cfd8' }} />
+                      <span className="ph-dot8" style={{ marginTop: 0, background: STATUS_COLOR[p.status] || GREY }} />
                       <select className="ph-proj-select" value={p.status} onChange={(e) => onEdit(p.id, 'status', e.target.value)}>
                         {STATUSES.map((st) => <option key={st}>{st}</option>)}
                       </select>
