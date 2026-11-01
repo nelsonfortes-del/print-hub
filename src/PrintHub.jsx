@@ -392,7 +392,7 @@ export default function PrintHub() {
       {dragging && (
         <div className="ph-drop">
           <div className="ph-drop-title">Drop to add to {dropCat}</div>
-          <div className="ph-mono" style={{ fontSize: 12, color: '#636b78' }}>STL · 3MF · OBJ · STEP · G-CODE</div>
+          <div className="ph-mono" style={{ fontSize: 14, color: '#636b78' }}>STL · 3MF · OBJ · STEP · G-CODE</div>
         </div>
       )}
 
