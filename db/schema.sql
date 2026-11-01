@@ -40,3 +40,15 @@ create table if not exists ph_meta (
 );
 
 create index if not exists idx_ph_files_added on ph_files(added desc);
+
+-- Projects (Work or Personal). Each file can belong to one.
+create table if not exists ph_projects (
+  id text primary key,
+  name text not null default '',
+  category text not null default 'Personal',
+  status text not null default 'Idea',
+  notes text not null default '',
+  sort double precision not null default 0
+);
+
+alter table ph_files add column if not exists project_id text;

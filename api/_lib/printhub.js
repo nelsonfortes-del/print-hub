@@ -53,49 +53,78 @@ export async function readRaw(req, limit) {
   return Buffer.concat(chunks)
 }
 
-export const CATS = ['Functional parts', 'Household', 'Tools']
+export const CATS = ['Work', 'Personal']
+export const STATUSES = ['Idea', 'In design', 'Ready to print', 'In progress', 'Works', 'Done', 'Stalled']
 const EXTS = ['stl', '3mf', 'obj', 'step', 'gcode']
 const SUPPORTS = ['None', 'Buildplate only', 'Everywhere']
 export const MAX_FILE_BYTES = 500 * 1024 * 1024
 export const BLOB_PREFIX = 'printhub/'
 
-const SEED_PRINTERS = [
-  ['p1', 'Prusa MK4', '0.4', '250×210×220', 'Textured PEI sheet'],
-  ['p2', 'Bambu P1S', '0.4', '256×256×256', ''],
+// Starting data, from Nelson's 3D printing notes. Only ever inserted once
+// (see ensureTables); after that everything is edited in the app.
+const PRINTERS = [
+  ['kobra-s1', 'Anycubic Kobra S1 Combo', '0.4', '250×250×250', 'Main printer. ACE Pro multi-color unit. Replacement unit, working fine since 8/31/2026. GECO cold plate for PLA (no bed heat).'],
+  ['ad5m', 'Flashforge Adventurer 5M', '0.4', '220×220×220', 'Used for the Honeycomb Storage Wall panels.'],
 ]
-const SEED_MATERIALS = [
-  ['m1', 'PLA', 215, 60, 100, 'Default for most parts'],
+const MATERIALS = [
+  ['eryone-silk', 'Eryone Silk PLA', 230, 55, null, 'Anycubic Slicer Next preset: flow 0.95, PA 0.024. To do: re-run the flow test at the right temperature.'],
+  ['m1', 'PLA', 215, 60, 100, 'On hand: black and white. Two-color: slot 1 black, slot 2 white; height-range modifier for raised text.'],
   ['m2', 'PETG', 240, 80, 40, 'Use glue stick on smooth PEI'],
   ['m3', 'ABS', 250, 100, 0, 'Enclosure required'],
   ['m4', 'ASA', 255, 100, 10, 'Outdoor parts'],
   ['m5', 'TPU', 225, 50, 50, 'Print slow, 20 mm/s'],
 ]
+const PROJECTS = [
+  ['metris-hooks', 'Metris Van Cage Hooks', 'Work', 'Works', 'v2 two-clip design works; about 8 printed (Oct 2026). Next: higher hook lip, a fold-up hook, and a ~1 qt trash bin that hangs on the same clips.'],
+  ['scanner-mount', 'Dash Cubby Scanner Mount', 'Work', 'In design', 'Friction-fit cubby anchor + cradle for the Zebra TC77 (80.1 × 160 × 25.2 mm). Two pieces: anchor with shaft, cradle with snap-on clamp rings that tilt. Fix from first print: scale anchor down 5%, square the top-right corner. Later: phone pocket, slide-in cup holder.'],
+  ['hit-dividers', 'Hit Divider Cards', 'Work', 'Ready to print', '215.9 × 108 mm, 2.4 mm black body, 1.2 mm raised white text, Inter Display Black, SLAB layout. 18 hits (Hit 1 = Weybosset). python3 hit_divider.py all. 0.2 mm layers, 3 walls, no supports, 5 mm brim.'],
+  ['form-box', 'PS 3849 Form Box', 'Work', 'In design', 'For 3.5" × 7.5" forms. Flat, square, fully enclosed. Tambour lid slides back and rolls down inside. Based on A+Gridfinity+Tambour+Box. Wanted as FreeCAD + STL.'],
+  ['honeycomb-wall', 'Honeycomb Storage Wall', 'Work', 'In progress', 'Mail case back wall, magnets, no drilling. 20 mm hex, 1.8 mm wall, 8 mm deep (HSW compatible). One row of 220 mm panels on the Flashforge. Envelope tray done (8 snap clips). Deferred: letter file rack.'],
+  ['mail-organizer', '5-Slot Mail Carrier Organizer', 'Work', 'In progress', 'Truck sorter. Slanted dividers, one long side closed. Side bins: one left, two right, set back. One piece, max bed length.'],
+  ['pocket-folder', 'Mail Pocket Folder', 'Work', 'Idea', 'Slim book-style folder behind the mail stack: forms, labels, pen, writing surface. Thinness first, at least #10 envelope wide, roughly weatherproof. Options: initials, rubber band slot, magnet closure, trifold.'],
+  ['crown-dove', 'Crown with Dove', 'Personal', 'In progress', 'Three parts: crown, pedestal plate, stand. Small dove on the orb, no wand or scepter, hollow crown bottom.'],
+  ['gridfinity-base', 'Gridfinity Baseplate', 'Personal', 'Idea', '28" × 13" area, 16 × 7 grid. Needs printable STLs.'],
+  ['skadis', 'SKÅDIS Pegboard', 'Personal', 'Idea', 'About 30" × 20", printed in tiles on the Kobra S1. Test a small piece first.'],
+  ['tcg-sorting', 'TCG Card Sorting', 'Personal', 'Idea', 'Thin SKÅDIS strip with ~6 pockets for loose cards. Wall buckets: Gridfinity Trading Card Organizer (Printables). Hex tray: check Makerworld first.'],
+  ['sorting-tray', 'Sorting Tray', 'Personal', 'Stalled', ''],
+]
 
 // ---------- tables ----------
 
-// Creates the tables from db/schema.sql and fills
-// in starter printers and materials the very first time.
+// Every statement in db/schema.sql is safe to re-run ("if not exists"), so
+// they all run once per server start; that's how new columns get added.
+// Starting data goes in once, tracked in ph_meta.
 let _ready = null
 function ensureTables() {
   if (!_ready) {
     _ready = (async () => {
       const d = await db()
-      const [{ t }] = await d.query("select to_regclass('public.ph_meta') as t")
-      if (!t) {
-        const text = readFileSync(new URL('../../db/schema.sql', import.meta.url), 'utf8')
-        const statements = text.split('\n').map((l) => l.replace(/--.*$/, '')).join('\n')
-          .split(';').map((s) => s.trim()).filter(Boolean)
-        for (const st of statements) await d.query(st)
-      }
-      const seeded = await d.query("select 1 from ph_meta where key = 'seeded'")
-      if (!seeded.length) {
-        for (const [i, p] of SEED_PRINTERS.entries()) {
+      const text = readFileSync(new URL('../../db/schema.sql', import.meta.url), 'utf8')
+      const statements = text.split('\n').map((l) => l.replace(/--.*$/, '')).join('\n')
+        .split(';').map((s) => s.trim()).filter(Boolean)
+      for (const st of statements) await d.query(st)
+
+      const done = new Set((await d.query('select key from ph_meta')).map((r) => r.key))
+      const mark = (key) => d.query('insert into ph_meta (key, value) values ($1, $2) on conflict do nothing', [key, new Date().toISOString()])
+
+      // v1 setup: real printers, filament, projects, Work/Personal
+      if (!done.has('setup-v1')) {
+        // the first version's sample printers, if they were never touched
+        await d.query(`delete from ph_printers where (id = 'p1' and name = 'Prusa MK4' and notes = 'Textured PEI sheet')
+                                               or (id = 'p2' and name = 'Bambu P1S' and notes = '')`)
+        await d.query(`delete from ph_materials where id = 'm1' and name = 'PLA' and notes = 'Default for most parts'`)
+        for (const [i, p] of PRINTERS.entries()) {
           await d.query('insert into ph_printers (id, name, nozzle, volume, notes, sort) values ($1,$2,$3,$4,$5,$6) on conflict do nothing', [...p, i])
         }
-        for (const [i, m] of SEED_MATERIALS.entries()) {
+        for (const [i, m] of MATERIALS.entries()) {
           await d.query('insert into ph_materials (id, name, nozzle, bed, fan, notes, sort) values ($1,$2,$3,$4,$5,$6,$7) on conflict do nothing', [...m, i])
         }
-        await d.query("insert into ph_meta (key, value) values ('seeded', $1) on conflict do nothing", [new Date().toISOString()])
+        for (const [i, pr] of PROJECTS.entries()) {
+          await d.query('insert into ph_projects (id, name, category, status, notes, sort) values ($1,$2,$3,$4,$5,$6) on conflict do nothing', [...pr, i])
+        }
+        // old categories (Functional parts / Household / Tools) become Personal
+        await d.query("update ph_files set category = 'Personal' where category not in ('Work', 'Personal')")
+        await mark('setup-v1')
       }
     })().catch((e) => { _ready = null; throw e })
   }
@@ -135,20 +164,23 @@ const fileRow = (r) => ({
   fav: r.fav, added: Number(r.added),
   prints: Array.isArray(r.prints) ? r.prints : JSON.parse(r.prints || '[]'),
   hasFile: !!r.blob_path,
+  projectId: r.project_id || null,
 })
 
 // ---------- reads ----------
 
 export async function loadAll() {
-  const [files, printers, materials] = await Promise.all([
+  const [files, printers, materials, projects] = await Promise.all([
     q('select * from ph_files order by added desc, id'),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
+    q('select id, name, category, status, notes from ph_projects order by sort, id'),
   ])
   return {
     files: files.map(fileRow),
     printers,
     materials: materials.map((m) => ({ ...m, nozzle: m.nozzle ?? '', bed: m.bed ?? '', fan: m.fan ?? '' })),
+    projects,
     storage: storageMode(),
   }
 }
@@ -163,16 +195,17 @@ export async function saveFile(body) {
     id, str(body.name, 300) || 'Untitled',
     EXTS.includes(body.ext) ? body.ext : 'stl',
     Math.max(0, Number(body.size) || 0),
-    CATS.includes(body.category) ? body.category : CATS[0],
+    CATS.includes(body.category) ? body.category : CATS[1],
     JSON.stringify(tags), !!body.fav, Number(body.added) || Date.now(), JSON.stringify(prints),
+    body.projectId ? okId(body.projectId) : null,
   ]
   // blob_path is only ever set by attachFile, never from the browser.
   const [saved] = await q(
-    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints)
-     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb)
+    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id)
+     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10)
      on conflict (id) do update set name = excluded.name, ext = excluded.ext, size = excluded.size,
        category = excluded.category, tags = excluded.tags, fav = excluded.fav, prints = excluded.prints,
-       updated_at = now()
+       project_id = excluded.project_id, updated_at = now()
      returning *`, row)
   return fileRow(saved)
 }
@@ -221,9 +254,23 @@ export async function saveMaterial(body) {
   return { ok: true }
 }
 
+export async function saveProject(body) {
+  const id = okId(body.id)
+  await q(
+    `insert into ph_projects (id, name, category, status, notes, sort) values ($1,$2,$3,$4,$5,$6)
+     on conflict (id) do update set name = excluded.name, category = excluded.category, status = excluded.status, notes = excluded.notes`,
+    [id, str(body.name, 160), CATS.includes(body.category) ? body.category : CATS[1],
+      STATUSES.includes(body.status) ? body.status : STATUSES[0], str(body.notes, 4000), Date.now()])
+  return { ok: true }
+}
+
+const PROFILE_TABLES = { printer: 'ph_printers', material: 'ph_materials', project: 'ph_projects' }
 export async function deleteProfile(kind, id) {
   id = okId(id)
-  await q(`delete from ${kind === 'printer' ? 'ph_printers' : 'ph_materials'} where id = $1`, [id])
+  const table = PROFILE_TABLES[kind]
+  if (!table) throw httpError(400, 'Unknown list')
+  await q(`delete from ${table} where id = $1`, [id])
+  if (kind === 'project') await q('update ph_files set project_id = null where project_id = $1', [id])
   return { ok: true }
 }
 

@@ -222,6 +222,44 @@ select.ph-input { padding: 0 8px; }
 .ph-hist-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
 .ph-hist-sum { font-size: 13px; color: #454b56; }
 
+/* Projects */
+.ph-title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ph-status-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px;
+  background: #fff; border: 1px solid #e3e6eb; font-size: 12px; color: #454b56;
+}
+.ph-project-notes {
+  font-size: 13px; color: #454b56; line-height: 1.5; max-width: 760px; margin: -8px 0 20px; white-space: pre-wrap;
+}
+.ph-banner-warn { border-left-color: #c98a1b; }
+.ph-proj-section { margin-bottom: 32px; }
+.ph-proj-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.ph-h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.ph-proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.ph-proj {
+  background: #fff; border: 1px solid #e3e6eb; border-radius: 10px; padding: 10px 12px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.ph-proj-top { display: flex; align-items: center; gap: 4px; }
+.ph-proj-name { margin-left: -8px; }
+.ph-proj-row { display: flex; align-items: center; gap: 8px; }
+.ph-proj-select {
+  height: 30px; padding: 0 6px; border: 1px solid #e3e6eb; border-radius: 6px; background: #fff;
+  font-size: 13px; color: #1a1d23; outline: none;
+}
+.ph-proj-select:focus { border-color: #2a5bd7; }
+.ph-proj-notes {
+  width: 100%; resize: vertical; min-height: 72px; padding: 8px; border: 1px solid transparent; border-radius: 6px;
+  background: #f6f7f9; font: inherit; font-size: 13px; line-height: 1.45; color: #454b56; outline: none;
+}
+.ph-proj-notes:hover { border-color: #e3e6eb; }
+.ph-proj-notes:focus { border-color: #2a5bd7; background: #fff; }
+.ph-proj-files {
+  align-self: flex-start; border: none; background: transparent; padding: 2px 0; font-size: 13px;
+  color: #2a5bd7; font-weight: 500;
+}
+.ph-proj-files:hover { color: #1f47b0; }
+
 /* Phones: sidebar becomes a top strip instead of a 220px column */
 @media (max-width: 720px) {
   .ph-header { padding: 12px 16px; gap: 12px; }

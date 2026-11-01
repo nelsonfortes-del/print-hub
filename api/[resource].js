@@ -2,7 +2,7 @@
 import {
   httpError, readRaw, blobToken, databaseUrl,
   loadAll, saveFile, attachFile, deleteFile, fileForDownload,
-  savePrinter, saveMaterial, deleteProfile,
+  savePrinter, saveMaterial, saveProject, deleteProfile,
   saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX,
 } from './_lib/printhub.js'
 
@@ -12,7 +12,7 @@ import {
 // /api/upload                   POST    Vercel Blob client-upload handshake
 // /api/local-file?id=&name=     PUT     raw file body (developer's computer only)
 // /api/file?id=                 GET     download the stored file
-// /api/printers | materials     PUT     save one row;  DELETE ?id=
+// /api/printers | materials | projects  PUT     save one row;  DELETE ?id=
 export default async function handler(req, res) {
   const resource = req.query.resource
   const method = req.method
@@ -68,9 +68,10 @@ export default async function handler(req, res) {
       return res.json(await saveLocal(req.query.id, String(req.query.name || ''), buf))
     }
 
-    if (resource === 'printers' || resource === 'materials') {
-      const kind = resource === 'printers' ? 'printer' : 'material'
-      if (method === 'PUT') return res.json(kind === 'printer' ? await savePrinter(body) : await saveMaterial(body))
+    const kinds = { printers: ['printer', savePrinter], materials: ['material', saveMaterial], projects: ['project', saveProject] }
+    if (kinds[resource]) {
+      const [kind, save] = kinds[resource]
+      if (method === 'PUT') return res.json(await save(body))
       if (method === 'DELETE') return res.json(await deleteProfile(kind, req.query.id))
     }
 

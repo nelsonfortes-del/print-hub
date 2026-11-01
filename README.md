@@ -1,10 +1,16 @@
 # Print Hub
 
 A personal catalog for 3D-print files. Drag STL, 3MF, OBJ, STEP or G-code files
-in, sort them into **Functional parts / Household / Tools**, tag and favorite
+in, file them under **Work** or **Personal** and a project, tag and favorite
 them, and log every print (printer, material, temperatures, supports, success or
 fail). Printers and Materials are editable lists under Settings; picking a
 material when logging a print fills in its temperatures.
+
+**Projects** each have a status (Idea → In design → Ready to print → In
+progress → Works / Done, or Stalled) and notes. If more than one Work project is
+In progress, the Projects page reminds you to finish one first. The starting
+printers, filament and projects come from Nelson's 3D printing notes and are
+loaded once; after that, everything is edited in the app.
 
 ## Where things are stored
 

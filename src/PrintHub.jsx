@@ -9,7 +9,12 @@ import {
 // database; the 3D files themselves go to online file storage, so every
 // device sees the same library.
 
-const CATS = ['Functional parts', 'Household', 'Tools']
+const CATS = ['Work', 'Personal']
+const STATUSES = ['Idea', 'In design', 'Ready to print', 'In progress', 'Works', 'Done', 'Stalled']
+const STATUS_COLOR = {
+  Idea: '#c9cfd8', 'In design': '#8a919c', 'Ready to print': '#2a5bd7', 'In progress': '#c98a1b',
+  Works: '#2f7d4f', Done: '#2f7d4f', Stalled: '#b8432f',
+}
 const EXTS = ['stl', '3mf', 'obj', 'step', 'stp', 'gcode', 'gco']
 const SUPPORTS = ['None', 'Buildplate only', 'Everywhere']
 const BLUE = '#2a5bd7'
@@ -37,12 +42,14 @@ export default function PrintHub() {
   const [files, setFiles] = useState([])
   const [printers, setPrinters] = useState([])
   const [materials, setMaterials] = useState([])
+  const [projects, setProjects] = useState([])
   const [draft, setDraft] = useState(() => ({ printer: '', material: 'PLA', nozzle: 215, bed: 60, supports: 'None', result: 'Success', ...(readDraft() || {}) }))
   const [uploading, setUploading] = useState({}) // file id -> percent
 
   const [view, setView] = useState('catalog')
   const [cat, setCat] = useState('All')
   const [tag, setTag] = useState(null)
+  const [project, setProject] = useState(null) // project id filter
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(null)
   const [dragging, setDragging] = useState(false)
@@ -65,7 +72,8 @@ export default function PrintHub() {
     setFiles(data.files)
     setPrinters(data.printers)
     setMaterials(data.materials)
-    setDraft((d) => (d.printer ? d : { ...d, printer: data.printers[0]?.name || '' }))
+    setProjects(data.projects || [])
+    setDraft((d) => (data.printers.some((p) => p.name === d.printer) ? d : { ...d, printer: data.printers[0]?.name || '' }))
     setLoad({ state: 'ready', error: '' })
   }, [])
   const fail = useCallback((e) => setLoad({ state: 'error', error: e.message || 'Could not reach the database' }), [])
@@ -77,7 +85,11 @@ export default function PrintHub() {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ printer: draft.printer, material: draft.material, nozzle: draft.nozzle, bed: draft.bed })) } catch { /* private mode */ }
   }, [draft.printer, draft.material, draft.nozzle, draft.bed])
 
-  const dropCat = CATS.includes(cat) && view === 'catalog' ? cat : CATS[0]
+  // New files go into the project/category being viewed (Personal otherwise)
+  const activeProject = projects.find((p) => p.id === project) || null
+  const dropProject = view === 'catalog' ? activeProject : null
+  const dropCatName = dropProject ? dropProject.category : CATS.includes(cat) && view === 'catalog' ? cat : 'Personal'
+  const dropCat = dropProject ? dropProject.name : dropCatName
 
   const addFiles = async (list) => {
     if (load.state !== 'ready') return
@@ -93,7 +105,7 @@ export default function PrintHub() {
         entry: {
           id: uid('f'), name: parts.join('.'),
           ext: ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext,
-          size: f.size, category: target, tags: [], fav: false, prints: [], added: Date.now(), hasFile: false,
+          size: f.size, category: dropCatName, projectId: dropProject?.id || null, tags: [], fav: false, prints: [], added: Date.now(), hasFile: false,
         },
         file: f,
       }
@@ -165,9 +177,9 @@ export default function PrintHub() {
     saveFile(next).catch(saveFailed)
   }
 
-  // Printer/material rows save a moment after you stop typing
+  // Printer/material/project rows save a moment after you stop typing
   const profileTimers = useRef({})
-  const profiles = { printers: [printers, setPrinters], materials: [materials, setMaterials] }
+  const profiles = { printers: [printers, setPrinters], materials: [materials, setMaterials], projects: [projects, setProjects] }
   const editProfile = (kind, id, key, val) => {
     const [rows, setRows] = profiles[kind]
     const next = rows.map((r) => (r.id === id ? { ...r, [key]: val } : r))
@@ -186,20 +198,27 @@ export default function PrintHub() {
     clearTimeout(profileTimers.current[id])
     setRows(rows.filter((r) => r.id !== id))
     deleteProfile(kind, id).catch(saveFailed)
+    if (kind === 'projects') {
+      setFiles((fs) => fs.map((f) => (f.projectId === id ? { ...f, projectId: null } : f)))
+      if (project === id) setProject(null)
+    }
   }
+  const openProject = (id) => { setProject(id); setCat('All'); setTag(null); setView('catalog') }
+  const projectName = (id) => projects.find((p) => p.id === id)?.name
   const toggleFav = (id) => updateFile(id, (f) => ({ ...f, fav: !f.fav }))
 
   const ql = q.trim().toLowerCase()
   const shown = useMemo(() => files.filter((f) =>
     (cat === 'All' || (cat === 'Favorites' ? f.fav : f.category === cat)) &&
+    (!project || f.projectId === project) &&
     (!tag || f.tags.includes(tag)) &&
     (!ql || f.name.toLowerCase().includes(ql) || f.tags.some((t) => t.includes(ql)))
-  ), [files, cat, tag, ql])
+  ), [files, cat, project, tag, ql])
   const allTags = useMemo(() => [...new Set(files.flatMap((f) => f.tags))].sort(), [files])
 
   const navCount = (label) =>
     label === 'All' ? files.length : label === 'Favorites' ? files.filter((f) => f.fav).length : files.filter((f) => f.category === label).length
-  const catTitle = cat === 'All' ? 'All files' : cat
+  const catTitle = activeProject ? activeProject.name : cat === 'All' ? 'All files' : cat
   const heading = tag ? `${catTitle} · #${tag}` : catTitle
   const selected = files.find((f) => f.id === sel)
 
@@ -229,9 +248,16 @@ export default function PrintHub() {
           <nav className="ph-nav">
             <div className="ph-label">Library</div>
             {['All', 'Favorites', ...CATS].map((label) => (
-              <NavItem key={label} label={label} count={navCount(label)} active={view === 'catalog' && cat === label}
-                onClick={() => { setCat(label); setView('catalog') }} />
+              <NavItem key={label} label={label} count={navCount(label)} active={view === 'catalog' && !project && cat === label}
+                onClick={() => { setCat(label); setProject(null); setView('catalog') }} />
             ))}
+          </nav>
+          <nav className="ph-nav">
+            <div className="ph-label">Projects</div>
+            <NavItem label="All projects" count={projects.length} active={view === 'projects'} onClick={() => setView('projects')} />
+            {activeProject && view === 'catalog' && (
+              <NavItem label={activeProject.name} count={files.filter((f) => f.projectId === project).length} active onClick={() => {}} />
+            )}
           </nav>
           <nav className="ph-nav">
             <div className="ph-label">Settings</div>
@@ -266,9 +292,18 @@ export default function PrintHub() {
           {load.state === 'ready' && view === 'catalog' && (
             <>
               <div className="ph-head-row" style={{ marginBottom: 20 }}>
-                <h1 className="ph-h1">{heading}</h1>
+                <div className="ph-title-row">
+                  <h1 className="ph-h1">{heading}</h1>
+                  {activeProject && (
+                    <>
+                      <StatusPill status={activeProject.status} />
+                      <button className="ph-btn-sm" onClick={() => setProject(null)}>Show all files</button>
+                    </>
+                  )}
+                </div>
                 <div className="ph-hint">Drop STL, 3MF, OBJ, STEP or G-code anywhere</div>
               </div>
+              {activeProject?.notes && <div className="ph-project-notes">{activeProject.notes}</div>}
               {shown.length > 0 ? (
                 <div className="ph-grid">
                   {shown.map((f) => {
@@ -285,7 +320,7 @@ export default function PrintHub() {
                         <div className="ph-card-body">
                           <div className="ph-card-name">{f.name}</div>
                           <div className="ph-card-meta">
-                            <span className="ph-ellipsis">{f.category}</span>
+                            <span className="ph-ellipsis">{projectName(f.projectId) || f.category}</span>
                             {uploading[f.id] != null
                               ? <span className="ph-status ph-mono">{uploading[f.id]}%</span>
                               : <span className="ph-status"><span className="ph-dot6" style={{ background: st.dot }} />{st.label}</span>}
@@ -302,6 +337,19 @@ export default function PrintHub() {
                 </div>
               )}
             </>
+          )}
+
+          {load.state === 'ready' && view === 'projects' && (
+            <ProjectsPage
+              projects={projects} files={files}
+              onEdit={(id, key, val) => editProfile('projects', id, key, val)}
+              onRemove={(id) => {
+                const pr = projects.find((p) => p.id === id)
+                if (window.confirm(`Delete the project "${pr?.name || 'Untitled'}"? Its files stay in the library.`)) removeProfile('projects', id)
+              }}
+              onAdd={(category) => addProfile('projects', { id: uid('pr'), name: '', category, status: 'Idea', notes: '' })}
+              onOpen={openProject}
+            />
           )}
 
           {load.state === 'ready' && view === 'printers' && (
@@ -355,7 +403,7 @@ export default function PrintHub() {
           key={selected.id}
           file={selected}
           uploadPct={uploading[selected.id]}
-          printers={printers} materials={materials}
+          printers={printers} materials={materials} projects={projects}
           draft={draft} setDraft={setDraft}
           onClose={() => setSel(null)}
           onFav={() => toggleFav(selected.id)}
@@ -418,7 +466,7 @@ function ProfileTable({ title, addLabel, sub, minWidth, cols, headers, kind, row
   )
 }
 
-function Drawer({ file, uploadPct, printers, materials, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
+function Drawer({ file, uploadPct, printers, materials, projects, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
   const [tagInput, setTagInput] = useState('')
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }))
   const printerOpts = [...new Set([...printers.map((p) => p.name).filter(Boolean), draft.printer].filter(Boolean))]
@@ -466,10 +514,28 @@ function Drawer({ file, uploadPct, printers, materials, draft, setDraft, onClose
             <div className="ph-seg-row">
               {CATS.map((c) => (
                 <button key={c} className="ph-seg" style={segStyle(file.category === c)}
-                  onClick={() => update((f) => ({ ...f, category: c }))}>{c}</button>
+                  onClick={() => update((f) => ({
+                    ...f, category: c,
+                    projectId: projects.find((p) => p.id === f.projectId)?.category === c ? f.projectId : null,
+                  }))}>{c}</button>
               ))}
             </div>
           </div>
+
+          <label className="ph-lbl">Project
+            <select className="ph-input" value={file.projectId || ''}
+              onChange={(e) => {
+                const pr = projects.find((p) => p.id === e.target.value)
+                update((f) => ({ ...f, projectId: pr?.id || null, category: pr ? pr.category : f.category }))
+              }}>
+              <option value="">No project</option>
+              {CATS.map((c) => (
+                <optgroup key={c} label={c}>
+                  {projects.filter((p) => p.category === c).map((p) => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </label>
 
           <div className="ph-col8">
             <div className="ph-field-label">Tags</div>
@@ -561,6 +627,74 @@ function Drawer({ file, uploadPct, printers, materials, draft, setDraft, onClose
           </div>
         </div>
       </div>
+    </>
+  )
+}
+
+function StatusPill({ status }) {
+  return (
+    <span className="ph-status-pill">
+      <span className="ph-dot6" style={{ background: STATUS_COLOR[status] || '#c9cfd8' }} />{status}
+    </span>
+  )
+}
+
+function ProjectsPage({ projects, files, onEdit, onRemove, onAdd, onOpen }) {
+  const busyWork = projects.filter((p) => p.category === 'Work' && p.status === 'In progress')
+  return (
+    <>
+      <div className="ph-head-row" style={{ marginBottom: 6 }}>
+        <h1 className="ph-h1">Projects</h1>
+      </div>
+      <div className="ph-sub">Each file can belong to a project. Changes save automatically.</div>
+      {busyWork.length > 1 && (
+        <div className="ph-banner ph-banner-warn">
+          <strong>{busyWork.length} work projects are in progress:</strong> {busyWork.map((p) => p.name).join(', ')}.
+          {' '}Your rule: finish one before starting the next.
+        </div>
+      )}
+      {CATS.map((c) => {
+        const list = projects.filter((p) => p.category === c)
+        return (
+          <section key={c} className="ph-proj-section">
+            <div className="ph-proj-head">
+              <h2 className="ph-h2">{c}</h2>
+              <span className="ph-mono ph-count">{list.length}</span>
+              <div style={{ flex: 1 }} />
+              <button className="ph-btn-outline" onClick={() => onAdd(c)}>Add {c.toLowerCase()} project</button>
+            </div>
+            <div className="ph-proj-grid">
+              {list.map((p) => {
+                const count = files.filter((f) => f.projectId === p.id).length
+                return (
+                  <div key={p.id} className="ph-proj">
+                    <div className="ph-proj-top">
+                      <input className="ph-cell is-strong ph-proj-name" value={p.name} placeholder="Project name"
+                        onChange={(e) => onEdit(p.id, 'name', e.target.value)} />
+                      <button className="ph-x" aria-label="Delete project" onClick={() => onRemove(p.id)}>×</button>
+                    </div>
+                    <div className="ph-proj-row">
+                      <span className="ph-dot8" style={{ marginTop: 0, background: STATUS_COLOR[p.status] || '#c9cfd8' }} />
+                      <select className="ph-proj-select" value={p.status} onChange={(e) => onEdit(p.id, 'status', e.target.value)}>
+                        {STATUSES.map((st) => <option key={st}>{st}</option>)}
+                      </select>
+                      <select className="ph-proj-select" value={p.category} onChange={(e) => onEdit(p.id, 'category', e.target.value)}>
+                        {CATS.map((cc) => <option key={cc}>{cc}</option>)}
+                      </select>
+                    </div>
+                    <textarea className="ph-proj-notes" value={p.notes} placeholder="Notes, measurements, what's next…" rows={4}
+                      onChange={(e) => onEdit(p.id, 'notes', e.target.value)} />
+                    <button className="ph-proj-files" onClick={() => onOpen(p.id)}>
+                      {count ? `${count} file${count === 1 ? '' : 's'}` : 'No files yet'} →
+                    </button>
+                  </div>
+                )
+              })}
+              {list.length === 0 && <div className="ph-muted13">No {c.toLowerCase()} projects yet.</div>}
+            </div>
+          </section>
+        )
+      })}
     </>
   )
 }
