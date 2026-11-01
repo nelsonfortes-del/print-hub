@@ -55,3 +55,8 @@ alter table ph_files add column if not exists project_id text;
 
 -- Words that auto-sort uploaded files into a project (comma-separated)
 alter table ph_projects add column if not exists keywords text not null default '';
+
+-- Preview picture for each file (made in the browser, a few dozen KB)
+alter table ph_files add column if not exists thumb bytea;
+alter table ph_files add column if not exists thumb_type text;
+alter table ph_files add column if not exists thumb_v bigint not null default 0;

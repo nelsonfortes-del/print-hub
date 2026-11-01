@@ -21,7 +21,15 @@ project. The matching code is `src/autosort.js`.
 every 3D file inside is added, including subfolders. The top folder's name
 becomes a tag, and folder names help auto-sort when a file's own name doesn't
 match. Files already in the library (same name and size) are skipped, and so
-are non-3D files and Mac junk like `.DS_Store`. See `src/collect.js`. The starting
+are non-3D files and Mac junk like `.DS_Store`. See `src/collect.js`.
+
+**Preview pictures:** every file gets a picture, made in the browser
+(`src/thumbs.js`). 3MF files from a slicer and G-code from Orca-based slicers
+(Anycubic Slicer Next, Bambu Studio, OrcaSlicer) already contain a preview,
+which is used as-is. Otherwise the model is drawn in 3D with three.js (STL, OBJ,
+3MF, G-code). STEP files get no picture. Pictures are stored in the database
+(`ph_files.thumb`) and files added before this feature get theirs filled in
+automatically the next time the page is open. The starting
 printers, filament and projects come from Nelson's 3D printing notes and are
 loaded once; after that, everything is edited in the app.
 

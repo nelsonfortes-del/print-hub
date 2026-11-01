@@ -190,13 +190,15 @@ const fileRow = (r) => ({
   prints: Array.isArray(r.prints) ? r.prints : JSON.parse(r.prints || '[]'),
   hasFile: !!r.blob_path,
   projectId: r.project_id || null,
+  thumbV: r.has_thumb ? Number(r.thumb_v) || 1 : 0,
 })
 
 // ---------- reads ----------
 
 export async function loadAll() {
   const [files, printers, materials, projects] = await Promise.all([
-    q('select * from ph_files order by added desc, id'),
+    q(`select id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, thumb_v, (thumb is not null) as has_thumb
+       from ph_files order by added desc, id`),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
     q('select id, name, category, status, notes, keywords from ph_projects order by sort, id'),
@@ -231,7 +233,7 @@ export async function saveFile(body) {
      on conflict (id) do update set name = excluded.name, ext = excluded.ext, size = excluded.size,
        category = excluded.category, tags = excluded.tags, fav = excluded.fav, prints = excluded.prints,
        project_id = excluded.project_id, updated_at = now()
-     returning *`, row)
+     returning id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, thumb_v, (thumb is not null) as has_thumb`, row)
   return fileRow(saved)
 }
 
@@ -243,6 +245,32 @@ export async function attachFile(id, blobPath) {
   await q('update ph_files set blob_path = $2, updated_at = now() where id = $1', [id, blobPath])
   if (old.blob_path && old.blob_path !== blobPath) await removeStored(old.blob_path)
   return { ok: true }
+}
+
+// ---------- preview pictures ----------
+
+const THUMB_TYPES = ['image/webp', 'image/png', 'image/jpeg']
+const MAX_THUMB_BYTES = 1.5 * 1024 * 1024
+
+export async function saveThumb(body) {
+  const id = okId(body.id)
+  const type = THUMB_TYPES.includes(body.type) ? body.type : null
+  if (!type) throw httpError(400, 'Bad picture type')
+  const buf = Buffer.from(String(body.data || ''), 'base64')
+  if (!buf.length || buf.length > MAX_THUMB_BYTES) throw httpError(400, 'Picture missing or too large')
+  const v = Date.now()
+  // sent as hex text so both database drivers handle it the same way
+  const rows = await q("update ph_files set thumb = decode($2, 'hex'), thumb_type = $3, thumb_v = $4 where id = $1 returning id", [id, buf.toString('hex'), type, v])
+  if (!rows.length) throw httpError(404, 'File not found')
+  return { ok: true, thumbV: v }
+}
+
+export async function readThumb(id) {
+  id = okId(id)
+  const [row] = await q("select encode(thumb, 'base64') as b64, thumb_type from ph_files where id = $1", [id])
+  if (!row?.b64) throw httpError(404, 'No picture')
+  const data = Buffer.from(row.b64, 'base64')
+  return { data, type: row.thumb_type || 'image/png' }
 }
 
 export async function deleteFile(id) {

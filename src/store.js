@@ -43,3 +43,20 @@ export async function uploadFile(storage, id, file, onProgress) {
   }
   throw new Error('File storage is not turned on')
 }
+
+// ---------- preview pictures ----------
+
+export const thumbUrl = (id, v) => `/api/thumb?id=${encodeURIComponent(id)}&v=${v}`
+
+export async function saveThumb(id, blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer())
+  let bin = ''
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
+  return call('thumb', json('PUT', { id, type: blob.type || 'image/png', data: btoa(bin) }))
+}
+
+export async function fetchStoredFile(id) {
+  const res = await fetch(downloadUrl(id))
+  if (!res.ok) throw new Error(`Download failed (${res.status})`)
+  return res.blob()
+}

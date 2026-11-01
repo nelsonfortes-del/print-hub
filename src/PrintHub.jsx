@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './printhub.css'
 import { matchProject, normalize } from './autosort'
 import { grabDropped, fromPicker, expand } from './collect'
+import { makeThumb, canThumb } from './thumbs'
 import {
-  loadAll, saveFile, deleteFile, saveProfile, deleteProfile, uploadFile, downloadUrl,
+  loadAll, saveFile, deleteFile, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile,
 } from './store'
 
 // Print Hub: a catalog of 3D-print files with a print log per file, plus
@@ -99,6 +100,48 @@ export default function PrintHub() {
   const fallbackCat = CATS.includes(cat) && view === 'catalog' ? cat : 'Personal'
   const dropLabel = dropProject ? `Drop to add to ${dropProject.name}` : 'Drop to sort into projects'
 
+  // Preview pictures are made one at a time in the background: right after
+  // an upload (from the file still in memory), and for older files that
+  // don't have one yet (downloaded once, then drawn).
+  const thumbQueue = useRef([])
+  const thumbTried = useRef(new Set())
+  const thumbBusy = useRef(false)
+  const [thumbProgress, setThumbProgress] = useState(null) // { done, total }
+  const runThumbs = useCallback(async () => {
+    if (thumbBusy.current) return
+    thumbBusy.current = true
+    let done = 0
+    try {
+      while (thumbQueue.current.length) {
+        setThumbProgress({ done, total: done + thumbQueue.current.length })
+        const job = thumbQueue.current.shift()
+        thumbTried.current.add(job.id)
+        try {
+          const blob = job.blob || await fetchStoredFile(job.id)
+          const pic = await makeThumb(blob, job.ext)
+          if (pic) {
+            const { thumbV } = await saveThumb(job.id, pic)
+            setFiles((fs) => fs.map((f) => (f.id === job.id ? { ...f, thumbV } : f)))
+          }
+        } catch (e) {
+          console.warn('Print Hub: preview failed for', job.id, e)
+        }
+        done++
+      }
+    } finally {
+      thumbBusy.current = false
+      setThumbProgress(null)
+    }
+  }, [])
+  useEffect(() => {
+    if (load.state !== 'ready') return
+    const missing = files.filter((f) => f.hasFile && !f.thumbV && canThumb(f.ext) && !thumbTried.current.has(f.id)
+      && !thumbQueue.current.some((j) => j.id === f.id))
+    if (!missing.length) return
+    for (const f of missing) { thumbTried.current.add(f.id); thumbQueue.current.push({ id: f.id, ext: f.ext }) }
+    runThumbs()
+  }, [load.state, files, runThumbs])
+
   // found: [{ file, path }] from a drop or the pickers. Folders and .zip
   // files are opened up; every 3D file inside is added.
   const addFound = async (found) => {
@@ -163,6 +206,8 @@ export default function PrintHub() {
         setUploading((u) => ({ ...u, [entry.id]: 0 }))
         await uploadFile(storage, entry.id, file, (pct) => setUploading((u) => ({ ...u, [entry.id]: Math.round(pct) })))
         setFiles((fs) => fs.map((f) => (f.id === entry.id ? { ...f, hasFile: true } : f)))
+        thumbQueue.current.push({ id: entry.id, ext: entry.ext, blob: file })
+        runThumbs()
       } catch (e) {
         failed++
         console.error('Print Hub upload failed', e)
@@ -270,7 +315,10 @@ export default function PrintHub() {
       <header className="ph-header">
         <div className="ph-brand">
           <div className="ph-title"><span className="ph-title-blue">Print</span> Hub</div>
-          <div className="ph-mono ph-count">{files.length} file{files.length === 1 ? '' : 's'}</div>
+          <div className="ph-mono ph-count">
+            {files.length} file{files.length === 1 ? '' : 's'}
+            {thumbProgress && <span className="ph-thumb-progress"> · making previews {thumbProgress.done + 1}/{thumbProgress.total}</span>}
+          </div>
         </div>
         <div className="ph-search-wrap">
           <input
@@ -362,8 +410,10 @@ export default function PrintHub() {
                     return (
                       <div key={f.id} className="ph-card" role="button" tabIndex={0}
                         onClick={() => setSel(f.id)} onKeyDown={(e) => e.key === 'Enter' && setSel(f.id)}>
-                        <div className="ph-thumb">
-                          <span className="ph-badge">{f.ext.toUpperCase()}</span>
+                        <div className={'ph-thumb' + (f.thumbV ? ' has-img' : '')}>
+                          {f.thumbV
+                            ? <><img className="ph-thumb-img" src={thumbUrl(f.id, f.thumbV)} alt="" loading="lazy" /><span className="ph-badge ph-badge-corner">{f.ext.toUpperCase()}</span></>
+                            : <span className="ph-badge">{f.ext.toUpperCase()}</span>}
                           <button className="ph-fav" style={{ color: f.fav ? BLUE : 'var(--muted)' }}
                             aria-label={f.fav ? 'Remove favorite' : 'Add favorite'}
                             onClick={(e) => { e.stopPropagation(); toggleFav(f.id) }}>{f.fav ? '★' : '☆'}</button>
@@ -549,8 +599,10 @@ function Drawer({ file, uploadPct, printers, materials, projects, draft, setDraf
         </div>
 
         <div className="ph-drawer-body">
-          <div className="ph-preview">
-            <span className="ph-badge ph-badge-lg">3D preview · {file.ext.toUpperCase()}</span>
+          <div className={'ph-preview' + (file.thumbV ? ' has-img' : '')}>
+            {file.thumbV
+              ? <img className="ph-thumb-img" src={thumbUrl(file.id, file.thumbV)} alt={`Preview of ${file.name}`} />
+              : <span className="ph-badge ph-badge-lg">{file.ext === 'step' ? 'No preview for STEP files' : file.hasFile ? 'Making preview…' : 'No preview'}</span>}
           </div>
 
           <div className="ph-col4">

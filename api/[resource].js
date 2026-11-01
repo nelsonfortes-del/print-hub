@@ -3,7 +3,7 @@ import {
   httpError, readRaw, blobToken, databaseUrl,
   loadAll, saveFile, attachFile, deleteFile, fileForDownload,
   savePrinter, saveMaterial, saveProject, deleteProfile,
-  saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX,
+  saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb,
 } from './_lib/printhub.js'
 
 // /api/state                    GET     files + printers + materials + storage mode
@@ -12,10 +12,24 @@ import {
 // /api/upload                   POST    Vercel Blob client-upload handshake
 // /api/local-file?id=&name=     PUT     raw file body (developer's computer only)
 // /api/file?id=                 GET     download the stored file
+// /api/thumb?id=&v=             GET     preview picture;  PUT {id, type, data(base64)}
 // /api/printers | materials | projects  PUT     save one row;  DELETE ?id=
 export default async function handler(req, res) {
   const resource = req.query.resource
   const method = req.method
+
+  // Preview pictures. The address includes the picture's version (?v=), so
+  // browsers can keep them for good and still see a new one when it changes.
+  if (resource === 'thumb' && method === 'GET') {
+    try {
+      const { data, type } = await readThumb(req.query.id)
+      res.setHeader('content-type', type)
+      res.setHeader('cache-control', 'public, max-age=31536000, immutable')
+      return res.end(data)
+    } catch (e) {
+      return res.status(e.status || 500).json({ error: e.status ? e.message : 'Server error' })
+    }
+  }
 
   // Download a stored file (a plain link, so the browser saves it directly)
   if (resource === 'file' && method === 'GET') {
@@ -45,6 +59,8 @@ export default async function handler(req, res) {
       if (method === 'PUT') return res.json(await saveFile(body))
       if (method === 'DELETE') return res.json(await deleteFile(req.query.id))
     }
+
+    if (resource === 'thumb' && method === 'PUT') return res.json(await saveThumb(body))
 
     if (resource === 'attach' && method === 'POST') return res.json(await attachFile(body.id, body.pathname))
 
