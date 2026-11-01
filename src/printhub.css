@@ -25,7 +25,8 @@ html, body { margin: 0; background: #f6f7f9; }
   position: sticky; top: 0; z-index: 5;
 }
 .ph-brand { display: flex; align-items: baseline; gap: 10px; min-width: 180px; }
-.ph-title { font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+.ph-title { font-weight: 700; font-size: 24px; letter-spacing: -0.02em; line-height: 1; }
+.ph-title-blue { color: #2a5bd7; }
 .ph-count { font-size: 11px; color: #636b78; }
 .ph-search-wrap { flex: 1 1 260px; max-width: 480px; }
 .ph-search {

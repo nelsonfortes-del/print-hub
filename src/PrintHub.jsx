@@ -226,7 +226,7 @@ export default function PrintHub() {
     <div className="ph">
       <header className="ph-header">
         <div className="ph-brand">
-          <div className="ph-title">Print Hub</div>
+          <div className="ph-title"><span className="ph-title-blue">Print</span> Hub</div>
           <div className="ph-mono ph-count">{files.length} file{files.length === 1 ? '' : 's'}</div>
         </div>
         <div className="ph-search-wrap">
