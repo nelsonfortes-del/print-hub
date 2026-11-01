@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './printhub.css'
-import { matchProject } from './autosort'
+import { matchProject, normalize } from './autosort'
+import { grabDropped, fromPicker, expand } from './collect'
 import {
   loadAll, saveFile, deleteFile, saveProfile, deleteProfile, uploadFile, downloadUrl,
 } from './store'
@@ -60,6 +61,7 @@ export default function PrintHub() {
   const [toast, setToast] = useState(null)
 
   const fileRef = useRef(null)
+  const folderRef = useRef(null)
   const toastTimer = useRef(null)
   const filesRef = useRef(files)
   useEffect(() => { filesRef.current = files }, [files])
@@ -97,21 +99,45 @@ export default function PrintHub() {
   const fallbackCat = CATS.includes(cat) && view === 'catalog' ? cat : 'Personal'
   const dropLabel = dropProject ? `Drop to add to ${dropProject.name}` : 'Drop to sort into projects'
 
-  const addFiles = async (list) => {
+  // found: [{ file, path }] from a drop or the pickers. Folders and .zip
+  // files are opened up; every 3D file inside is added.
+  const addFound = async (found) => {
     if (load.state !== 'ready') return
-    const arr = Array.from(list)
-    const ok = arr.filter((f) => EXTS.includes(f.name.split('.').pop().toLowerCase()))
-    const skipped = arr.length - ok.length
-    if (!ok.length) return showToast('No supported files. Use STL, 3MF, OBJ, STEP or G-code.')
-    const added = ok.map((f) => {
+    const many = found.length > 1 || found.some((x) => x.path.includes('/') || /\.zip$/i.test(x.file.name))
+    if (many) showToast('Opening…')
+    const { items, badZips } = await expand(found)
+    if (badZips.length) showToast(`Couldn't open ${badZips.join(', ')}`)
+    return addItems(items)
+  }
+
+  const addItems = async (items) => {
+    const supported = items.filter(({ file }) => EXTS.includes(file.name.split('.').pop().toLowerCase()))
+    const skipped = items.length - supported.length
+    if (!supported.length) return showToast('No 3D files found. Use STL, 3MF, OBJ, STEP or G-code (folders and .zip files are fine).')
+    // same name and size as a file already in the library = a duplicate
+    const key = (name, ext, size) => `${name.toLowerCase()}.${ext}|${size}`
+    const have = new Set(filesRef.current.map((f) => key(f.name, f.ext, f.size)))
+    const ok = supported.filter(({ file }) => {
+      const parts = file.name.split('.'); const ext = parts.pop().toLowerCase()
+      const k = key(parts.join('.'), ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext, file.size)
+      if (have.has(k)) return false
+      have.add(k)
+      return true
+    })
+    const dupes = supported.length - ok.length
+    if (!ok.length) return showToast(`Already in your library: ${dupes} file${dupes === 1 ? '' : 's'}`)
+    const added = ok.map(({ file: f, folder }) => {
       const parts = f.name.split('.')
       const ext = parts.pop().toLowerCase()
-      const pr = dropProject || matchProject(parts.join('.'), projects)?.project || null
+      // file name first; if it says nothing, the folder names can
+      const pr = dropProject || (matchProject(parts.join('.'), projects) || matchProject(folder, projects))?.project || null
+      // the top folder's name becomes a tag, e.g. "labels"
+      const folderTag = normalize(folder.split('/')[0]).replace(/ /g, '-').slice(0, 40)
       return {
         entry: {
           id: uid('f'), name: parts.join('.'),
           ext: ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext,
-          size: f.size, category: pr ? pr.category : fallbackCat, projectId: pr?.id || null, tags: [], fav: false, prints: [], added: Date.now(), hasFile: false,
+          size: f.size, category: pr ? pr.category : fallbackCat, projectId: pr?.id || null, tags: folderTag ? [folderTag] : [], fav: false, prints: [], added: Date.now(), hasFile: false,
         },
         file: f,
       }
@@ -127,7 +153,7 @@ export default function PrintHub() {
       : sortedIds.size
         ? `Sorted ${plural(added.length - unsorted, 'file')} into ${plural(sortedIds.size, 'project')}` + (unsorted ? ` · ${unsorted} unsorted` : '')
         : `Added ${plural(added.length, 'file')} to Unsorted`
-    const skippedNote = skipped ? ` · skipped ${skipped}` : ''
+    const skippedNote = (dupes ? ` · ${dupes} already here` : '') + (skipped ? ` · skipped ${skipped} non-3D` : '')
     showToast(summary + skippedNote)
 
     let failed = 0
@@ -148,8 +174,8 @@ export default function PrintHub() {
       ? `${failed} of ${added.length} file${added.length > 1 ? 's' : ''} didn't upload. The details are saved; try again later.`
       : summary + skippedNote)
   }
-  const addFilesRef = useRef(addFiles)
-  useEffect(() => { addFilesRef.current = addFiles })
+  const addFilesRef = useRef(addFound)
+  useEffect(() => { addFilesRef.current = addFound })
 
   // Window-wide drag & drop
   useEffect(() => {
@@ -161,7 +187,8 @@ export default function PrintHub() {
     const onDrop = (e) => {
       if (!hasFiles(e)) return
       e.preventDefault(); depth = 0; setDragging(false)
-      if (e.dataTransfer.files?.length) addFilesRef.current(e.dataTransfer.files)
+      const grab = grabDropped(e.dataTransfer) // must run before the handler returns
+      grab().then((found) => addFilesRef.current(found)).catch(() => showToast("Couldn't read what was dropped. Try Add files."))
     }
     window.addEventListener('dragenter', onEnter)
     window.addEventListener('dragover', onOver)
@@ -253,9 +280,14 @@ export default function PrintHub() {
         </div>
         <div style={{ flex: 1 }} />
         <input
-          ref={fileRef} type="file" multiple accept=".stl,.3mf,.obj,.step,.stp,.gcode,.gco" style={{ display: 'none' }}
-          onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = '' }}
+          ref={fileRef} type="file" multiple accept=".stl,.3mf,.obj,.step,.stp,.gcode,.gco,.zip" style={{ display: 'none' }}
+          onChange={(e) => { if (e.target.files?.length) addFound(fromPicker(e.target.files)); e.target.value = '' }}
         />
+        <input
+          ref={folderRef} type="file" webkitdirectory="" style={{ display: 'none' }}
+          onChange={(e) => { if (e.target.files?.length) addFound(fromPicker(e.target.files)); e.target.value = '' }}
+        />
+        <button className="ph-btn-outline ph-hide-phone" onClick={() => folderRef.current?.click()}>Add folder</button>
         <button className="ph-btn-primary" onClick={() => fileRef.current?.click()}>Add files</button>
       </header>
 
@@ -317,7 +349,7 @@ export default function PrintHub() {
                     </>
                   )}
                 </div>
-                <div className="ph-hint">Drop STL, 3MF, OBJ, STEP or G-code anywhere</div>
+                <div className="ph-hint">Drop 3D files, folders or .zip files anywhere</div>
               </div>
               {activeProject?.notes && <div className="ph-project-notes">{activeProject.notes}</div>}
               {cat === 'Unsorted' && !activeProject && shown.length > 0 && (
@@ -411,7 +443,7 @@ export default function PrintHub() {
       {dragging && (
         <div className="ph-drop">
           <div className="ph-drop-title">{dropLabel}</div>
-          <div className="ph-mono" style={{ fontSize: 14, color: 'var(--muted)' }}>STL · 3MF · OBJ · STEP · G-CODE</div>
+          <div className="ph-mono" style={{ fontSize: 14, color: 'var(--muted)' }}>STL · 3MF · OBJ · STEP · G-CODE · FOLDERS · ZIP</div>
         </div>
       )}
 

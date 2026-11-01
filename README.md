@@ -15,7 +15,13 @@ In progress, the Projects page reminds you to finish one first.
 starts a word in the file name, e.g. `CageHook_v2.stl` → Metris Van Cage
 Hooks. If several match, the longest word wins. Files that match nothing go to
 **Unsorted**. Adding files while viewing a project puts them all in that
-project. The matching code is `src/autosort.js`. The starting
+project. The matching code is `src/autosort.js`.
+
+**Folders and zips:** drag a folder or a `.zip` in (or use **Add folder**) and
+every 3D file inside is added, including subfolders. The top folder's name
+becomes a tag, and folder names help auto-sort when a file's own name doesn't
+match. Files already in the library (same name and size) are skipped, and so
+are non-3D files and Mac junk like `.DS_Store`. See `src/collect.js`. The starting
 printers, filament and projects come from Nelson's 3D printing notes and are
 loaded once; after that, everything is edited in the app.
 

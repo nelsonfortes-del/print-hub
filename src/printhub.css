@@ -312,5 +312,7 @@ select.ph-input { padding: 0 8px; }
   .ph-tags-block .ph-label { padding: 0; }
   .ph-main { padding: 20px 16px 60px; }
   .ph-hint { display: none; }
+  .ph-hide-phone { display: none; }
   .ph-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 }
+.ph-header .ph-btn-outline { height: 42px; padding: 0 16px; font-size: 16px; }
