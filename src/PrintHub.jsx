@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './printhub.css'
+import { matchProject } from './autosort'
 import {
   loadAll, saveFile, deleteFile, saveProfile, deleteProfile, uploadFile, downloadUrl,
 } from './store'
@@ -85,11 +86,13 @@ export default function PrintHub() {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ printer: draft.printer, material: draft.material, nozzle: draft.nozzle, bed: draft.bed })) } catch { /* private mode */ }
   }, [draft.printer, draft.material, draft.nozzle, draft.bed])
 
-  // New files go into the project/category being viewed (Personal otherwise)
+  // Where new files go: into the project being viewed, if any. Otherwise
+  // each file is auto-sorted by its name (see autosort.js); files that match
+  // no project land in Unsorted, under the category being viewed (or Personal).
   const activeProject = projects.find((p) => p.id === project) || null
   const dropProject = view === 'catalog' ? activeProject : null
-  const dropCatName = dropProject ? dropProject.category : CATS.includes(cat) && view === 'catalog' ? cat : 'Personal'
-  const dropCat = dropProject ? dropProject.name : dropCatName
+  const fallbackCat = CATS.includes(cat) && view === 'catalog' ? cat : 'Personal'
+  const dropLabel = dropProject ? `Drop to add to ${dropProject.name}` : 'Drop to sort into projects'
 
   const addFiles = async (list) => {
     if (load.state !== 'ready') return
@@ -97,15 +100,15 @@ export default function PrintHub() {
     const ok = arr.filter((f) => EXTS.includes(f.name.split('.').pop().toLowerCase()))
     const skipped = arr.length - ok.length
     if (!ok.length) return showToast('No supported files. Use STL, 3MF, OBJ, STEP or G-code.')
-    const target = dropCat
     const added = ok.map((f) => {
       const parts = f.name.split('.')
       const ext = parts.pop().toLowerCase()
+      const pr = dropProject || matchProject(parts.join('.'), projects)?.project || null
       return {
         entry: {
           id: uid('f'), name: parts.join('.'),
           ext: ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext,
-          size: f.size, category: dropCatName, projectId: dropProject?.id || null, tags: [], fav: false, prints: [], added: Date.now(), hasFile: false,
+          size: f.size, category: pr ? pr.category : fallbackCat, projectId: pr?.id || null, tags: [], fav: false, prints: [], added: Date.now(), hasFile: false,
         },
         file: f,
       }
@@ -113,7 +116,16 @@ export default function PrintHub() {
     setFiles((prev) => [...added.map((a) => a.entry), ...prev])
     setView('catalog')
     if (added.length === 1) setSel(added[0].entry.id)
-    showToast(`Adding ${added.length} file${added.length > 1 ? 's' : ''} to ${target}` + (skipped ? ` · skipped ${skipped}` : ''))
+    const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
+    const sortedIds = new Set(added.map((a) => a.entry.projectId).filter(Boolean))
+    const unsorted = added.filter((a) => !a.entry.projectId).length
+    const summary = dropProject
+      ? `Added ${plural(added.length, 'file')} to ${dropProject.name}`
+      : sortedIds.size
+        ? `Sorted ${plural(added.length - unsorted, 'file')} into ${plural(sortedIds.size, 'project')}` + (unsorted ? ` · ${unsorted} unsorted` : '')
+        : `Added ${plural(added.length, 'file')} to Unsorted`
+    const skippedNote = skipped ? ` · skipped ${skipped}` : ''
+    showToast(summary + skippedNote)
 
     let failed = 0
     for (const { entry, file } of added) {
@@ -131,7 +143,7 @@ export default function PrintHub() {
     }
     showToast(failed
       ? `${failed} of ${added.length} file${added.length > 1 ? 's' : ''} didn't upload. The details are saved; try again later.`
-      : `Added ${added.length} file${added.length > 1 ? 's' : ''} to ${target}` + (skipped ? ` · skipped ${skipped}` : ''))
+      : summary + skippedNote)
   }
   const addFilesRef = useRef(addFiles)
   useEffect(() => { addFilesRef.current = addFiles })
@@ -209,7 +221,7 @@ export default function PrintHub() {
 
   const ql = q.trim().toLowerCase()
   const shown = useMemo(() => files.filter((f) =>
-    (cat === 'All' || (cat === 'Favorites' ? f.fav : f.category === cat)) &&
+    (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
     (!project || f.projectId === project) &&
     (!tag || f.tags.includes(tag)) &&
     (!ql || f.name.toLowerCase().includes(ql) || f.tags.some((t) => t.includes(ql)))
@@ -217,7 +229,8 @@ export default function PrintHub() {
   const allTags = useMemo(() => [...new Set(files.flatMap((f) => f.tags))].sort(), [files])
 
   const navCount = (label) =>
-    label === 'All' ? files.length : label === 'Favorites' ? files.filter((f) => f.fav).length : files.filter((f) => f.category === label).length
+    label === 'All' ? files.length : label === 'Favorites' ? files.filter((f) => f.fav).length
+      : label === 'Unsorted' ? files.filter((f) => !f.projectId).length : files.filter((f) => f.category === label).length
   const catTitle = activeProject ? activeProject.name : cat === 'All' ? 'All files' : cat
   const heading = tag ? `${catTitle} · #${tag}` : catTitle
   const selected = files.find((f) => f.id === sel)
@@ -247,7 +260,7 @@ export default function PrintHub() {
         <aside className="ph-side">
           <nav className="ph-nav">
             <div className="ph-label">Library</div>
-            {['All', 'Favorites', ...CATS].map((label) => (
+            {['All', 'Favorites', ...CATS, 'Unsorted'].map((label) => (
               <NavItem key={label} label={label} count={navCount(label)} active={view === 'catalog' && !project && cat === label}
                 onClick={() => { setCat(label); setProject(null); setView('catalog') }} />
             ))}
@@ -304,6 +317,9 @@ export default function PrintHub() {
                 <div className="ph-hint">Drop STL, 3MF, OBJ, STEP or G-code anywhere</div>
               </div>
               {activeProject?.notes && <div className="ph-project-notes">{activeProject.notes}</div>}
+              {cat === 'Unsorted' && !activeProject && shown.length > 0 && (
+                <div className="ph-project-notes">These files didn't match any project's keywords. Open one to pick a project, or add keywords on the Projects page.</div>
+              )}
               {shown.length > 0 ? (
                 <div className="ph-grid">
                   {shown.map((f) => {
@@ -347,7 +363,7 @@ export default function PrintHub() {
                 const pr = projects.find((p) => p.id === id)
                 if (window.confirm(`Delete the project "${pr?.name || 'Untitled'}"? Its files stay in the library.`)) removeProfile('projects', id)
               }}
-              onAdd={(category) => addProfile('projects', { id: uid('pr'), name: '', category, status: 'Idea', notes: '' })}
+              onAdd={(category) => addProfile('projects', { id: uid('pr'), name: '', category, status: 'Idea', notes: '', keywords: '' })}
               onOpen={openProject}
             />
           )}
@@ -391,7 +407,7 @@ export default function PrintHub() {
 
       {dragging && (
         <div className="ph-drop">
-          <div className="ph-drop-title">Drop to add to {dropCat}</div>
+          <div className="ph-drop-title">{dropLabel}</div>
           <div className="ph-mono" style={{ fontSize: 14, color: '#636b78' }}>STL · 3MF · OBJ · STEP · G-CODE</div>
         </div>
       )}
@@ -646,7 +662,7 @@ function ProjectsPage({ projects, files, onEdit, onRemove, onAdd, onOpen }) {
       <div className="ph-head-row" style={{ marginBottom: 6 }}>
         <h1 className="ph-h1">Projects</h1>
       </div>
-      <div className="ph-sub">Each file can belong to a project. Changes save automatically.</div>
+      <div className="ph-sub">Each file can belong to a project. Uploaded files are sorted into the project whose auto-sort words appear in the file name. Changes save automatically.</div>
       {busyWork.length > 1 && (
         <div className="ph-banner ph-banner-warn">
           <strong>{busyWork.length} work projects are in progress:</strong> {busyWork.map((p) => p.name).join(', ')}.
@@ -682,6 +698,11 @@ function ProjectsPage({ projects, files, onEdit, onRemove, onAdd, onOpen }) {
                         {CATS.map((cc) => <option key={cc}>{cc}</option>)}
                       </select>
                     </div>
+                    <label className="ph-kw">
+                      <span>Auto-sort words</span>
+                      <input className="ph-kw-input" value={p.keywords || ''} placeholder="e.g. hook, cage"
+                        onChange={(e) => onEdit(p.id, 'keywords', e.target.value)} />
+                    </label>
                     <textarea className="ph-proj-notes" value={p.notes} placeholder="Notes, measurements, what's next…" rows={4}
                       onChange={(e) => onEdit(p.id, 'notes', e.target.value)} />
                     <button className="ph-proj-files" onClick={() => onOpen(p.id)}>

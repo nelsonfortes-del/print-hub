@@ -262,6 +262,14 @@ select.ph-input { padding: 0 8px; }
 }
 .ph-proj-files:hover { color: #1f47b0; }
 
+.ph-kw { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #636b78; }
+.ph-kw > span { flex: 0 0 auto; }
+.ph-kw-input {
+  flex: 1; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid #e3e6eb; border-radius: 6px;
+  font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; color: #1a1d23; background: #fff; outline: none;
+}
+.ph-kw-input:focus { border-color: #2a5bd7; }
+
 /* Phones: sidebar becomes a top strip instead of a 220px column */
 @media (max-width: 720px) {
   .ph-header { padding: 12px 16px; gap: 12px; }

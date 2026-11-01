@@ -89,6 +89,23 @@ const PROJECTS = [
   ['sorting-tray', 'Sorting Tray', 'Personal', 'Stalled', ''],
 ]
 
+// Starting auto-sort keywords. A file whose name contains one of these words
+// goes into that project when uploaded.
+const KEYWORDS = {
+  'metris-hooks': 'hook, cage, metris, satchel, trash bin',
+  'scanner-mount': 'scanner, tc77, zebra, cubby, cradle, dash',
+  'hit-dividers': 'hit, hit divider, divider card, weybosset',
+  'form-box': '3849, tambour, form box',
+  'honeycomb-wall': 'hsw, honeycomb, hex panel, envelope, glove, tilt box',
+  'mail-organizer': 'organizer, sorter, 5 slot, mail sorter',
+  'pocket-folder': 'pocket folder, folder',
+  'crown-dove': 'crown, dove, orb, pedestal',
+  'gridfinity-base': 'baseplate, gridfinity base',
+  skadis: 'skadis, pegboard',
+  'tcg-sorting': 'tcg, trading card, card sorting, card',
+  'sorting-tray': 'sorting tray',
+}
+
 // ---------- tables ----------
 
 // Every statement in db/schema.sql is safe to re-run ("if not exists"), so
@@ -125,6 +142,14 @@ function ensureTables() {
         // old categories (Functional parts / Household / Tools) become Personal
         await d.query("update ph_files set category = 'Personal' where category not in ('Work', 'Personal')")
         await mark('setup-v1')
+      }
+
+      // v2: auto-sort keywords (only fills in projects that have none yet)
+      if (!done.has('setup-v2')) {
+        for (const [id, words] of Object.entries(KEYWORDS)) {
+          await d.query("update ph_projects set keywords = $2 where id = $1 and keywords = ''", [id, words])
+        }
+        await mark('setup-v2')
       }
     })().catch((e) => { _ready = null; throw e })
   }
@@ -174,7 +199,7 @@ export async function loadAll() {
     q('select * from ph_files order by added desc, id'),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
-    q('select id, name, category, status, notes from ph_projects order by sort, id'),
+    q('select id, name, category, status, notes, keywords from ph_projects order by sort, id'),
   ])
   return {
     files: files.map(fileRow),
@@ -257,10 +282,11 @@ export async function saveMaterial(body) {
 export async function saveProject(body) {
   const id = okId(body.id)
   await q(
-    `insert into ph_projects (id, name, category, status, notes, sort) values ($1,$2,$3,$4,$5,$6)
-     on conflict (id) do update set name = excluded.name, category = excluded.category, status = excluded.status, notes = excluded.notes`,
+    `insert into ph_projects (id, name, category, status, notes, keywords, sort) values ($1,$2,$3,$4,$5,$6,$7)
+     on conflict (id) do update set name = excluded.name, category = excluded.category, status = excluded.status,
+       notes = excluded.notes, keywords = excluded.keywords`,
     [id, str(body.name, 160), CATS.includes(body.category) ? body.category : CATS[1],
-      STATUSES.includes(body.status) ? body.status : STATUSES[0], str(body.notes, 4000), Date.now()])
+      STATUSES.includes(body.status) ? body.status : STATUSES[0], str(body.notes, 4000), str(body.keywords, 1000), Date.now()])
   return { ok: true }
 }
 
