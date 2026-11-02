@@ -65,3 +65,16 @@ export async function fetchStoredFile(id) {
 
 export const deleteFiles = (ids) => call('delete-files', json('POST', { ids }))
 export const markRemoved = (ids) => call('removed', json('POST', { ids }))
+
+// Sends a problem report to the server log (never blocks or throws)
+export function reportProblem(info) {
+  try {
+    fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...info, browser: navigator.userAgent, at: new Date().toISOString() }) }).catch(() => {})
+  } catch { /* ignore */ }
+}
+
+// ---------- folders inside a project ----------
+
+export const changeFolder = (projectId, from, to) => call('folder', json('POST', { projectId, from, to }))
+export const moveToFolder = (ids, subfolder) => call('move-files', json('POST', { ids, subfolder }))

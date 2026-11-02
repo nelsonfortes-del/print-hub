@@ -75,3 +75,7 @@ create table if not exists ph_removed (
   removed_at bigint not null default 0,
   cleaned boolean not null default false
 );
+
+-- Folders inside a project (B: Honeycomb Wall -> Tiles, Trays, Clips)
+alter table ph_projects add column if not exists folders jsonb not null default '[]';
+alter table ph_files add column if not exists subfolder text;

@@ -1,7 +1,7 @@
 /* global Buffer */
 import {
   httpError, readRaw, blobToken, databaseUrl,
-  loadAll, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload,
+  loadAll, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload, changeFolder, moveToFolder,
   savePrinter, saveMaterial, saveProject, deleteProfile,
   saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb,
 } from './_lib/printhub.js'
@@ -13,6 +13,8 @@ import {
 // /api/local-file?id=&name=     PUT     raw file body (developer's computer only)
 // /api/file?id=                 GET     download the stored file
 // /api/delete-files            POST    {ids} delete several (adds them to the Mac cleanup list)
+// /api/folder                   POST    {projectId, from, to|null} rename or remove a project folder
+// /api/move-files               POST    {ids, subfolder} put files into a folder
 // /api/removed                  POST    {ids} mark cleanup-list entries as handled
 // /api/thumb?id=&v=             GET     preview picture;  PUT {id, type, data(base64)}
 // /api/printers | materials | projects  PUT     save one row;  DELETE ?id=
@@ -62,6 +64,15 @@ export default async function handler(req, res) {
       if (method === 'DELETE') return res.json(await deleteFile(req.query.id))
     }
 
+    // Browser-side problems (like a preview that couldn't be made) are written
+    // to the Vercel function log so they can be looked up later.
+    if (resource === 'log' && method === 'POST') {
+      console.warn('[print-hub client]', JSON.stringify(body).slice(0, 2000))
+      return res.json({ ok: true })
+    }
+
+    if (resource === 'folder' && method === 'POST') return res.json(await changeFolder(body))
+    if (resource === 'move-files' && method === 'POST') return res.json(await moveToFolder(body))
     if (resource === 'delete-files' && method === 'POST') return res.json(await deleteFiles(body.ids))
     if (resource === 'removed' && method === 'POST') return res.json(await markRemoved(body.ids))
 

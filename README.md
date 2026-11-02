@@ -32,6 +32,13 @@ which is used as-is. Otherwise the model is drawn in 3D with three.js (STL, OBJ,
 automatically the next time the page is open. If a preview can't be made, the
 file panel says why and has a **Try again** button.
 
+**Folders inside a project:** open a project to see its folder buttons (All,
+each folder, Not in a folder, + New folder, Edit folders). Each file's panel has
+a Folder picker, and Select mode can move many files into a folder. Files added
+while a folder is open go into it; when you drop a folder from your Mac, files
+inside a subfolder with the same name as a project folder (e.g. `Tiles/`) go
+into that folder.
+
 **Deleting and Mac cleanup:** delete one file from its panel, or use **Select**
 to pick many and delete them together. Deleted files go on the **Mac cleanup**
 list (Settings), with the folder they came from. The page makes a script

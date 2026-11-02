@@ -5,7 +5,7 @@ import { grabDropped, fromPicker, expand } from './collect'
 import { makeThumb, canThumb } from './thumbs'
 import { cleanupScript, downloadText } from './cleanup'
 import {
-  loadAll, saveFile, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved,
+  loadAll, saveFile, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved, reportProblem, changeFolder, moveToFolder,
 } from './store'
 
 // Print Hub: a catalog of 3D-print files with a print log per file, plus
@@ -26,6 +26,7 @@ const OK = '#4cc38a'
 const FAIL = '#ff8370'
 const GREY = '#5b7194'
 const DRAFT_KEY = 'printhub.lastDraft'
+const LOOSE = '__loose'
 
 const fmtSize = (b) => (b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB')
 const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -60,6 +61,8 @@ export default function PrintHub() {
   const [cat, setCat] = useState('All')
   const [tag, setTag] = useState(null)
   const [project, setProject] = useState(null) // project id filter
+  const [folder, setFolder] = useState(null) // folder inside the project: null = all, LOOSE = no folder
+  const [editFolders, setEditFolders] = useState(false)
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(null)
   const [dragging, setDragging] = useState(false)
@@ -101,6 +104,7 @@ export default function PrintHub() {
   // each file is auto-sorted by its name (see autosort.js); files that match
   // no project land in Unsorted, under the category being viewed (or Personal).
   const activeProject = projects.find((p) => p.id === project) || null
+  const activeFolder = activeProject && (folder === LOOSE || (activeProject.folders || []).includes(folder)) ? folder : null
   const dropProject = view === 'catalog' ? activeProject : null
   const fallbackCat = CATS.includes(cat) && view === 'catalog' ? cat : 'Personal'
   const dropLabel = dropProject ? `Drop to add to ${dropProject.name}` : 'Drop to sort into projects'
@@ -139,6 +143,7 @@ export default function PrintHub() {
           failed++
           lastError = e.message
           setThumbErrors((m) => ({ ...m, [job.id]: e.message }))
+          reportProblem({ problem: 'preview', ext: job.ext, size: job.blob?.size, fromUpload: !!job.blob, error: e.message })
         }
         done++
       }
@@ -194,13 +199,17 @@ export default function PrintHub() {
       const ext = parts.pop().toLowerCase()
       // file name first; if it says nothing, the folder names can
       const pr = dropProject || (matchProject(parts.join('.'), projects) || matchProject(folder, projects))?.project || null
+      // folder inside the project: the one being viewed, else a Mac subfolder with the same name
+      const segs = folder.split('/').map(normalize)
+      const sub = pr === dropProject && activeFolder && activeFolder !== LOOSE ? activeFolder
+        : (pr?.folders || []).find((fo) => segs.includes(normalize(fo))) || null
       // the top folder's name becomes a tag, e.g. "labels"
       const folderTag = normalize(folder.split('/')[0]).replace(/ /g, '-').slice(0, 40)
       return {
         entry: {
           id: uid('f'), name: parts.join('.'),
           ext: ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext,
-          size: f.size, category: pr ? pr.category : fallbackCat, projectId: pr?.id || null, tags: folderTag ? [folderTag] : [], fav: false, prints: [], added: Date.now(), hasFile: false,
+          size: f.size, category: pr ? pr.category : fallbackCat, projectId: pr?.id || null, subfolder: pr ? sub : null, tags: folderTag ? [folderTag] : [], fav: false, prints: [], added: Date.now(), hasFile: false,
           sourcePath: folder ? `${folder}/${f.name}` : f.name,
         },
         file: f,
@@ -311,7 +320,44 @@ export default function PrintHub() {
       if (project === id) setProject(null)
     }
   }
-  const openProject = (id) => { setProject(id); setCat('All'); setTag(null); setView('catalog') }
+  const openProject = (id) => { setProject(id); setFolder(null); setEditFolders(false); setCat('All'); setTag(null); setView('catalog') }
+
+  // ----- folders inside a project -----
+  const setProjectFolders = (pid, folders) => {
+    const pr = projects.find((p) => p.id === pid)
+    if (!pr) return
+    const next = { ...pr, folders }
+    setProjects((ps) => ps.map((p) => (p.id === pid ? next : p)))
+    saveProfile('projects', next).catch(saveFailed)
+  }
+  const addFolder = (pid) => {
+    const pr = projects.find((p) => p.id === pid)
+    const name = (window.prompt(`New folder in ${pr?.name || 'this project'}:`) || '').replace(/\s+/g, ' ').trim().slice(0, 60)
+    if (!name) return null
+    const existing = (pr.folders || []).find((f) => f.toLowerCase() === name.toLowerCase())
+    if (!existing) setProjectFolders(pid, [...(pr.folders || []), name])
+    return existing || name
+  }
+  const renameFolder = (pid, from) => {
+    const to = (window.prompt(`Rename the folder "${from}" to:`, from) || '').replace(/\s+/g, ' ').trim().slice(0, 60)
+    if (!to || to === from) return
+    setProjects((ps) => ps.map((p) => (p.id === pid ? { ...p, folders: p.folders.map((f) => (f === from ? to : f)) } : p)))
+    setFiles((fs) => fs.map((f) => (f.projectId === pid && f.subfolder === from ? { ...f, subfolder: to } : f)))
+    if (folder === from) setFolder(to)
+    changeFolder(pid, from, to).catch(saveFailed)
+  }
+  const removeFolder = (pid, name) => {
+    if (!window.confirm(`Remove the folder "${name}"? Its files stay in the project, just not in a folder.`)) return
+    setProjects((ps) => ps.map((p) => (p.id === pid ? { ...p, folders: p.folders.filter((f) => f !== name) } : p)))
+    setFiles((fs) => fs.map((f) => (f.projectId === pid && f.subfolder === name ? { ...f, subfolder: null } : f)))
+    if (folder === name) setFolder(null)
+    changeFolder(pid, name, null).catch(saveFailed)
+  }
+  const moveFiles = (ids, sub) => {
+    setFiles((fs) => fs.map((f) => (ids.includes(f.id) && f.projectId ? { ...f, subfolder: sub || null } : f)))
+    moveToFolder(ids, sub || null).then(() => showToast(`Moved ${ids.length} file${ids.length === 1 ? '' : 's'} to ${sub || 'no folder'}`)).catch(saveFailed)
+    setPicked(new Set())
+  }
   const projectName = (id) => projects.find((p) => p.id === id)?.name
   // Delete one or many; they go on the Mac cleanup list
   const removeFiles = (ids) => {
@@ -334,15 +380,17 @@ export default function PrintHub() {
   const shown = useMemo(() => files.filter((f) =>
     (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
     (!project || f.projectId === project) &&
+    (!activeFolder || (activeFolder === LOOSE ? !f.subfolder : f.subfolder === activeFolder)) &&
     (!tag || f.tags.includes(tag)) &&
     (!ql || f.name.toLowerCase().includes(ql) || f.tags.some((t) => t.includes(ql)))
-  ), [files, cat, project, tag, ql])
+  ), [files, cat, project, activeFolder, tag, ql])
   const allTags = useMemo(() => [...new Set(files.flatMap((f) => f.tags))].sort(), [files])
 
   const navCount = (label) =>
     label === 'All' ? files.length : label === 'Favorites' ? files.filter((f) => f.fav).length
       : label === 'Unsorted' ? files.filter((f) => !f.projectId).length : files.filter((f) => f.category === label).length
   const catTitle = activeProject ? activeProject.name : cat === 'All' ? 'All files' : cat
+  const projectFiles = activeProject ? files.filter((f) => f.projectId === activeProject.id) : []
   const heading = tag ? `${catTitle} · #${tag}` : catTitle
   const selected = files.find((f) => f.id === sel)
 
@@ -430,7 +478,7 @@ export default function PrintHub() {
                   {activeProject && (
                     <>
                       <StatusPill status={activeProject.status} />
-                      <button className="ph-btn-sm" onClick={() => setProject(null)}>Show all files</button>
+                      <button className="ph-btn-sm" onClick={() => { setProject(null); setFolder(null) }}>Show all files</button>
                     </>
                   )}
                 </div>
@@ -444,12 +492,50 @@ export default function PrintHub() {
                   <strong>{picked.size} selected</strong>
                   <button className="ph-btn-sm" onClick={() => setPicked(new Set(shown.map((f) => f.id)))}>Select all {shown.length}</button>
                   {picked.size > 0 && <button className="ph-btn-sm" onClick={() => setPicked(new Set())}>Clear</button>}
+                  {activeProject && (
+                    <select className="ph-proj-select" value="" disabled={!picked.size}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        if (v === '__new') { const n = addFolder(activeProject.id); if (n) moveFiles([...picked], n) } else if (v) moveFiles([...picked], v === LOOSE ? null : v)
+                      }}>
+                      <option value="">Move to folder…</option>
+                      {(activeProject.folders || []).map((fo) => <option key={fo} value={fo}>{fo}</option>)}
+                      <option value={LOOSE}>No folder</option>
+                      <option value="__new">New folder…</option>
+                    </select>
+                  )}
                   <div style={{ flex: 1 }} />
                   <button className="ph-btn-sm ph-danger" disabled={!picked.size} onClick={() => removeFiles([...picked])}>Delete {picked.size || ''}</button>
                   <button className="ph-btn-sm" onClick={() => { setSelecting(false); setPicked(new Set()) }}>Done</button>
                 </div>
               )}
               {activeProject?.notes && <div className="ph-project-notes">{activeProject.notes}</div>}
+              {activeProject && (
+                <div className="ph-folders">
+                  <button className={'ph-folder' + (!activeFolder ? ' is-on' : '')} onClick={() => setFolder(null)}>
+                    All <span className="ph-mono">{projectFiles.length}</span>
+                  </button>
+                  {(activeProject.folders || []).map((fo) => (
+                    <span key={fo} className={'ph-folder' + (activeFolder === fo ? ' is-on' : '') + (editFolders ? ' is-editing' : '')}>
+                      <button className="ph-folder-main" onClick={() => (editFolders ? renameFolder(activeProject.id, fo) : setFolder(fo))}
+                        title={editFolders ? 'Rename' : undefined}>
+                        <span aria-hidden="true">▸</span> {fo} <span className="ph-mono">{projectFiles.filter((f) => f.subfolder === fo).length}</span>
+                        {editFolders && <span className="ph-folder-hint">rename</span>}
+                      </button>
+                      {editFolders && <button className="ph-folder-x" aria-label={`Remove folder ${fo}`} onClick={() => removeFolder(activeProject.id, fo)}>×</button>}
+                    </span>
+                  ))}
+                  {(activeProject.folders || []).length > 0 && projectFiles.some((f) => !f.subfolder) && (
+                    <button className={'ph-folder ph-folder-loose' + (activeFolder === LOOSE ? ' is-on' : '')} onClick={() => setFolder(LOOSE)}>
+                      Not in a folder <span className="ph-mono">{projectFiles.filter((f) => !f.subfolder).length}</span>
+                    </button>
+                  )}
+                  <button className="ph-folder ph-folder-add" onClick={() => { const n = addFolder(activeProject.id); if (n) setFolder(n) }}>+ New folder</button>
+                  {(activeProject.folders || []).length > 0 && (
+                    <button className="ph-folder-edit" onClick={() => setEditFolders((v) => !v)}>{editFolders ? 'Done editing' : 'Edit folders'}</button>
+                  )}
+                </div>
+              )}
               {cat === 'Unsorted' && !activeProject && shown.length > 0 && (
                 <div className="ph-project-notes">These files didn't match any project's keywords. Open one to pick a project, or add keywords on the Projects page.</div>
               )}
@@ -473,7 +559,7 @@ export default function PrintHub() {
                         <div className="ph-card-body">
                           <div className="ph-card-name">{f.name}</div>
                           <div className="ph-card-meta">
-                            <span className="ph-ellipsis">{projectName(f.projectId) || f.category}</span>
+                            <span className="ph-ellipsis">{activeProject ? (f.subfolder || 'Not in a folder') : (projectName(f.projectId) || f.category)}</span>
                             {uploading[f.id] != null
                               ? <span className="ph-status ph-mono">{uploading[f.id]}%</span>
                               : <span className="ph-status"><span className="ph-dot6" style={{ background: st.dot }} />{st.label}</span>}
@@ -500,7 +586,7 @@ export default function PrintHub() {
                 const pr = projects.find((p) => p.id === id)
                 if (window.confirm(`Delete the project "${pr?.name || 'Untitled'}"? Its files stay in the library.`)) removeProfile('projects', id)
               }}
-              onAdd={(category) => addProfile('projects', { id: uid('pr'), name: '', category, status: 'Idea', notes: '', keywords: '' })}
+              onAdd={(category) => addProfile('projects', { id: uid('pr'), name: '', category, status: 'Idea', notes: '', keywords: '', folders: [] })}
               onOpen={openProject}
             />
           )}
@@ -574,6 +660,7 @@ export default function PrintHub() {
           onDelete={() => removeFiles([selected.id])}
           update={(fn) => updateFile(selected.id, fn)}
           showToast={showToast}
+          onNewFolder={addFolder}
         />
       )}
     </div>
@@ -624,7 +711,7 @@ function ProfileTable({ title, addLabel, sub, minWidth, cols, headers, kind, row
   )
 }
 
-function Drawer({ file, uploadPct, thumbError, thumbBusy, onRetryThumb, printers, materials, projects, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
+function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryThumb, printers, materials, projects, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
   const [tagInput, setTagInput] = useState('')
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }))
   const printerOpts = [...new Set([...printers.map((p) => p.name).filter(Boolean), draft.printer].filter(Boolean))]
@@ -695,7 +782,8 @@ function Drawer({ file, uploadPct, thumbError, thumbBusy, onRetryThumb, printers
             <select className="ph-input" value={file.projectId || ''}
               onChange={(e) => {
                 const pr = projects.find((p) => p.id === e.target.value)
-                update((f) => ({ ...f, projectId: pr?.id || null, category: pr ? pr.category : f.category }))
+                update((f) => ({ ...f, projectId: pr?.id || null, category: pr ? pr.category : f.category,
+                  subfolder: pr && (pr.folders || []).includes(f.subfolder) ? f.subfolder : null }))
               }}>
               <option value="">No project</option>
               {CATS.map((c) => (
@@ -705,6 +793,21 @@ function Drawer({ file, uploadPct, thumbError, thumbBusy, onRetryThumb, printers
               ))}
             </select>
           </label>
+
+          {file.projectId && (
+            <label className="ph-lbl">Folder
+              <select className="ph-input" value={file.subfolder || ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v === '__new') { const n = onNewFolder(file.projectId); if (n) update((f) => ({ ...f, subfolder: n })) }
+                  else update((f) => ({ ...f, subfolder: v || null }))
+                }}>
+                <option value="">Not in a folder</option>
+                {(projects.find((p) => p.id === file.projectId)?.folders || []).map((fo) => <option key={fo} value={fo}>{fo}</option>)}
+                <option value="__new">New folder…</option>
+              </select>
+            </label>
+          )}
 
           <div className="ph-col8">
             <div className="ph-field-label">Tags</div>
@@ -859,7 +962,8 @@ function ProjectsPage({ projects, files, onEdit, onRemove, onAdd, onOpen }) {
                     <textarea className="ph-proj-notes" value={p.notes} placeholder="Notes, measurements, what's next…" rows={4}
                       onChange={(e) => onEdit(p.id, 'notes', e.target.value)} />
                     <button className="ph-proj-files" onClick={() => onOpen(p.id)}>
-                      {count ? `${count} file${count === 1 ? '' : 's'}` : 'No files yet'} →
+                      {count ? `${count} file${count === 1 ? '' : 's'}` : 'No files yet'}
+                      {(p.folders || []).length > 0 && ` · ${p.folders.length} folder${p.folders.length === 1 ? '' : 's'}`} →
                     </button>
                   </div>
                 )

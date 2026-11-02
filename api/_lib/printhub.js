@@ -192,23 +192,24 @@ const fileRow = (r) => ({
   projectId: r.project_id || null,
   thumbV: r.has_thumb ? Number(r.thumb_v) || 1 : 0,
   sourcePath: r.source_path || null,
+  subfolder: r.subfolder || null,
 })
 
 // ---------- reads ----------
 
 export async function loadAll() {
   const [files, printers, materials, projects] = await Promise.all([
-    q(`select id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, source_path, thumb_v, (thumb is not null) as has_thumb
+    q(`select id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb
        from ph_files order by added desc, id`),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
-    q('select id, name, category, status, notes, keywords from ph_projects order by sort, id'),
+    q('select id, name, category, status, notes, keywords, folders from ph_projects order by sort, id'),
   ])
   return {
     files: files.map(fileRow),
     printers,
     materials: materials.map((m) => ({ ...m, nozzle: m.nozzle ?? '', bed: m.bed ?? '', fan: m.fan ?? '' })),
-    projects,
+    projects: projects.map((p) => ({ ...p, folders: Array.isArray(p.folders) ? p.folders : JSON.parse(p.folders || '[]') })),
     removed: await listRemoved(),
     storage: storageMode(),
   }
@@ -228,15 +229,17 @@ export async function saveFile(body) {
     JSON.stringify(tags), !!body.fav, Number(body.added) || Date.now(), JSON.stringify(prints),
     body.projectId ? okId(body.projectId) : null,
     body.sourcePath ? str(body.sourcePath, 1000) : null,
+    body.projectId && body.subfolder ? cleanFolder(body.subfolder) || null : null,
   ]
   // blob_path is only ever set by attachFile, never from the browser.
   const [saved] = await q(
-    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id, source_path)
-     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11)
+    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id, source_path, subfolder)
+     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11,$12)
      on conflict (id) do update set name = excluded.name, ext = excluded.ext, size = excluded.size,
        category = excluded.category, tags = excluded.tags, fav = excluded.fav, prints = excluded.prints,
-       project_id = excluded.project_id, source_path = coalesce(excluded.source_path, ph_files.source_path), updated_at = now()
-     returning id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, source_path, thumb_v, (thumb is not null) as has_thumb`, row)
+       project_id = excluded.project_id, source_path = coalesce(excluded.source_path, ph_files.source_path),
+       subfolder = excluded.subfolder, updated_at = now()
+     returning id, name, ext, size, category, tags, fav, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb`, row)
   return fileRow(saved)
 }
 
@@ -334,11 +337,48 @@ export async function saveMaterial(body) {
 export async function saveProject(body) {
   const id = okId(body.id)
   await q(
-    `insert into ph_projects (id, name, category, status, notes, keywords, sort) values ($1,$2,$3,$4,$5,$6,$7)
+    `insert into ph_projects (id, name, category, status, notes, keywords, folders, sort) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
      on conflict (id) do update set name = excluded.name, category = excluded.category, status = excluded.status,
-       notes = excluded.notes, keywords = excluded.keywords`,
+       notes = excluded.notes, keywords = excluded.keywords, folders = excluded.folders`,
     [id, str(body.name, 160), CATS.includes(body.category) ? body.category : CATS[1],
-      STATUSES.includes(body.status) ? body.status : STATUSES[0], str(body.notes, 4000), str(body.keywords, 1000), Date.now()])
+      STATUSES.includes(body.status) ? body.status : STATUSES[0], str(body.notes, 4000), str(body.keywords, 1000),
+      JSON.stringify(cleanFolders(body.folders)), Date.now()])
+  return { ok: true }
+}
+
+// ---------- folders inside a project ----------
+
+const cleanFolder = (name) => str(name, 60).replace(/\s+/g, ' ').trim()
+function cleanFolders(list) {
+  const seen = new Set()
+  return (Array.isArray(list) ? list : []).map(cleanFolder).filter((f) => {
+    const k = f.toLowerCase()
+    if (!f || seen.has(k)) return false
+    seen.add(k)
+    return true
+  }).slice(0, 50)
+}
+
+// Rename (to = new name) or remove (to = null) a folder: updates the project's
+// list and every file in it. Removing a folder keeps its files in the project.
+export async function changeFolder({ projectId, from, to }) {
+  projectId = okId(projectId)
+  from = cleanFolder(from)
+  to = to == null ? null : cleanFolder(to)
+  const [p] = await q('select folders from ph_projects where id = $1', [projectId])
+  if (!p) throw httpError(404, 'Project not found')
+  const list = Array.isArray(p.folders) ? p.folders : JSON.parse(p.folders || '[]')
+  const next = cleanFolders(to ? list.map((f) => (f === from ? to : f)) : list.filter((f) => f !== from))
+  await q('update ph_projects set folders = $2::jsonb where id = $1', [projectId, JSON.stringify(next)])
+  await q('update ph_files set subfolder = $3 where project_id = $1 and subfolder = $2', [projectId, from, to || null])
+  return { ok: true, folders: next }
+}
+
+// Put several files into one folder of their project (null = no folder)
+export async function moveToFolder({ ids, subfolder }) {
+  ids = (Array.isArray(ids) ? ids : []).slice(0, 2000).map(okId)
+  const name = subfolder ? cleanFolder(subfolder) : null
+  if (ids.length) await q('update ph_files set subfolder = $2 where id = any($1::text[]) and project_id is not null', [ids, name])
   return { ok: true }
 }
 
