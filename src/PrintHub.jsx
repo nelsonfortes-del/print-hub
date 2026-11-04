@@ -186,14 +186,19 @@ export default function PrintHub() {
     // same name and size as a file already in the library = a duplicate
     const key = (name, ext, size) => `${name.toLowerCase()}.${ext}|${size}`
     const have = new Set(filesRef.current.map((f) => key(f.name, f.ext, f.size)))
+    // a duplicate whose 3D file was never stored gets the file filled in instead
+    const missing = new Map(filesRef.current.filter((f) => !f.hasFile).map((f) => [key(f.name, f.ext, f.size), f]))
+    const refill = []
     const ok = supported.filter(({ file }) => {
       const parts = file.name.split('.'); const ext = parts.pop().toLowerCase()
       const k = key(parts.join('.'), ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext, file.size)
+      if (missing.has(k)) { refill.push({ entry: missing.get(k), file }); missing.delete(k); return false }
       if (have.has(k)) return false
       have.add(k)
       return true
     })
-    const dupes = supported.length - ok.length
+    const dupes = supported.length - ok.length - refill.length
+    if (!ok.length && refill.length) return uploadAll(refill, `Saving ${refill.length} missing file${refill.length === 1 ? '' : 's'}`, true)
     if (!ok.length) return showToast(`Already in your library: ${dupes} file${dupes === 1 ? '' : 's'}`)
     const added = ok.map(({ file: f, folder }) => {
       const parts = f.name.split('.')
@@ -229,11 +234,18 @@ export default function PrintHub() {
         : `Added ${plural(added.length, 'file')} to Unsorted`
     const skippedNote = (dupes ? ` · ${dupes} already here` : '') + (skipped ? ` · skipped ${skipped} non-3D` : '')
     showToast(summary + skippedNote)
+    return uploadAll([...added.map((a) => ({ ...a, isNew: true })), ...refill], summary + skippedNote + (refill.length ? ` · filled in ${refill.length} missing` : ''))
+  }
 
+  // Sends each file to storage; isNew rows are saved to the database first.
+  // Refills (rows already there, file missing) show their own toast up front.
+  const uploadAll = async (list, summary, refillOnly = false) => {
+    if (refillOnly) showToast(summary + '…')
     let failed = 0
-    for (const { entry, file } of added) {
+    let lastError = ''
+    for (const { entry, file, isNew } of list) {
       try {
-        await saveFile(entry)
+        if (isNew) await saveFile(entry)
         setUploading((u) => ({ ...u, [entry.id]: 0 }))
         await uploadFile(storage, entry.id, file, (pct) => setUploading((u) => ({ ...u, [entry.id]: Math.round(pct) })))
         setFiles((fs) => fs.map((f) => (f.id === entry.id ? { ...f, hasFile: true } : f)))
@@ -241,14 +253,16 @@ export default function PrintHub() {
         runThumbs()
       } catch (e) {
         failed++
+        lastError = e.message
         console.error('Print Hub upload failed', e)
+        reportProblem({ problem: 'upload', ext: entry.ext, size: file.size, error: e.message })
       } finally {
         setUploading((u) => { const n = { ...u }; delete n[entry.id]; return n })
       }
     }
     showToast(failed
-      ? `${failed} of ${added.length} file${added.length > 1 ? 's' : ''} didn't upload. The details are saved; try again later.`
-      : summary + skippedNote)
+      ? `${failed} of ${list.length} file${list.length > 1 ? 's' : ''} didn't upload: ${lastError}`
+      : summary, failed ? 10000 : undefined)
   }
   const addFilesRef = useRef(addFound)
   useEffect(() => { addFilesRef.current = addFound })

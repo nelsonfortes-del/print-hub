@@ -12,7 +12,9 @@ async function call(path, opts = {}) {
 }
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
 
-export const loadAll = () => call('state')
+// The Blob store is private unless the server says otherwise (BLOB_ACCESS)
+let blobAccess = 'private'
+export const loadAll = () => call('state').then((d) => { blobAccess = d.blobAccess || 'private'; return d })
 export const saveFile = (file) => call('files', json('PUT', file))
 export const deleteFile = (id) => call('files?id=' + encodeURIComponent(id), { method: 'DELETE' })
 export const saveProfile = (kind, row) => call(kind, json('PUT', row))
@@ -27,7 +29,7 @@ export async function uploadFile(storage, id, file, onProgress) {
   if (storage === 'blob') {
     const { upload } = await import('@vercel/blob/client')
     const blob = await upload(`printhub/${id}/${safe}`, file, {
-      access: 'private',
+      access: blobAccess,
       handleUploadUrl: '/api/upload',
       multipart: file.size > 20 * 1024 * 1024,
       onUploadProgress: onProgress ? (e) => onProgress(e.percentage) : undefined,

@@ -212,6 +212,7 @@ export async function loadAll() {
     projects: projects.map((p) => ({ ...p, folders: Array.isArray(p.folders) ? p.folders : JSON.parse(p.folders || '[]') })),
     removed: await listRemoved(),
     storage: storageMode(),
+    blobAccess: blobAccess(),
   }
 }
 
