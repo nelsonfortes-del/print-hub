@@ -10,6 +10,11 @@ material when logging a print fills in its temperatures.
 progress → Works / Done, or Stalled) and notes. If more than one Work project is
 In progress, the Projects page reminds you to finish one first.
 
+**Sellable:** a gold shelf in the sidebar for prints that are clean, tested and
+worth selling. Open a file and press **+ Sellable**, then type an asking price;
+the price shows on the file's card. Stored as `ph_files.sellable` and
+`ph_files.price`.
+
 **Auto-sort:** each project has a few auto-sort words. When you add files
 (anywhere except inside a project), each file goes to the project whose word
 starts a word in the file name, e.g. `CageHook_v2.stl` → Metris Van Cage
