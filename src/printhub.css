@@ -135,6 +135,7 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
   background: var(--surface); font-size: 15px; line-height: 1;
 }
 .ph-card-body { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 4px; }
+.ph-card-date { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ph-card-name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ph-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .ph-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
