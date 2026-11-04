@@ -41,6 +41,14 @@ export const blobToken = () => {
   return key ? process.env[key] : ''
 }
 
+// Newer Vercel Blob stores set BLOB_STORE_ID instead of a token and sign in
+// with the project's own Vercel identity (OIDC). Either one turns storage on.
+export const blobStoreId = () => (process.env.BLOB_STORE_ID || '').trim()
+export const blobOn = () => !!(blobToken() || blobStoreId())
+// Passed to the Blob calls: the token if there is one, otherwise nothing,
+// so the library signs in with BLOB_STORE_ID.
+export const blobAuth = () => (blobToken() ? { token: blobToken() } : {})
+
 export async function readRaw(req, limit) {
   if (Buffer.isBuffer(req.body)) return req.body
   const chunks = []
@@ -213,6 +221,8 @@ export async function loadAll() {
     removed: await listRemoved(),
     storage: storageMode(),
     blobAccess: blobAccess(),
+    // 'presigned' for stores that sign in with BLOB_STORE_ID (no token)
+    uploadMode: blobToken() ? 'token' : 'presigned',
   }
 }
 
@@ -402,7 +412,7 @@ export async function deleteProfile(kind, id) {
 export const blobAccess = () => (process.env.BLOB_ACCESS === 'public' ? 'public' : 'private')
 export const LOCAL_FILES = path.resolve(process.cwd(), 'db/.local-files')
 export function storageMode() {
-  if (blobToken()) return 'blob'
+  if (blobOn()) return 'blob'
   return process.env.VERCEL ? 'none' : 'local'
 }
 
@@ -426,7 +436,7 @@ export async function saveLocal(id, filename, buf) {
 
 // Returns { stream (Node readable), size?, contentType? } for a stored file.
 export async function openStored(blobPath) {
-  if (!blobToken()) {
+  if (!blobOn()) {
     if (storageMode() !== 'local') throw httpError(404, 'Not found')
     const file = localPath(blobPath)
     const s = await stat(file).catch(() => null)
@@ -435,16 +445,16 @@ export async function openStored(blobPath) {
   }
   const { get } = await import('@vercel/blob')
   const { Readable } = await import('stream')
-  const res = await get(blobPath, { access: blobAccess(), token: blobToken() })
+  const res = await get(blobPath, { access: blobAccess(), ...blobAuth() })
   if (!res || res.statusCode !== 200 || !res.stream) throw httpError(404, 'Not found')
   return { stream: Readable.fromWeb(res.stream), size: res.blob?.size }
 }
 
 async function removeStored(blobPath) {
   try {
-    if (blobToken()) {
+    if (blobOn()) {
       const { del } = await import('@vercel/blob')
-      await del(blobPath, { token: blobToken() })
+      await del(blobPath, blobAuth())
     } else if (storageMode() === 'local') {
       await rm(localPath(blobPath), { force: true })
     }

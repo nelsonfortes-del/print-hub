@@ -59,7 +59,9 @@ loaded once; after that, everything is edited in the app.
   database (Neon). The tables are created automatically the first time the app
   runs (`db/schema.sql`).
 - **The 3D files themselves** are in Vercel Blob, up to 500 MB each. Uploads go
-  straight from the browser to Blob storage.
+  straight from the browser to Blob storage. Either kind of Blob connection works: a
+  `BLOB_READ_WRITE_TOKEN`, or the newer `BLOB_STORE_ID` (signs in with the
+  project's Vercel identity, uploads use presigned addresses).
 - There's no PIN or login: anyone with the address can open it.
 
 ## Setting it up on Vercel
