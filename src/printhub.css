@@ -387,3 +387,4 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-sell-box { border: 1px solid var(--gold); background: var(--gold-tint); border-radius: 8px; padding: 10px 12px; color: var(--gold); }
 .ph-sell-box .ph-hint { font-size: 13px; }
 .ph-drawer-bar .ph-btn-sm { white-space: nowrap; }
+.ph-btn-sm.ph-btn-gold-outline { color: var(--gold); border-color: var(--gold); }

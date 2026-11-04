@@ -373,6 +373,31 @@ export default function PrintHub() {
     moveToFolder(ids, sub || null).then(() => showToast(`Moved ${ids.length} file${ids.length === 1 ? '' : 's'} to ${sub || 'no folder'}`)).catch(saveFailed)
     setPicked(new Set())
   }
+  // Changes many files at once (Select mode), then saves them a few at a time
+  const updateMany = async (ids, fn, done) => {
+    const next = filesRef.current.filter((f) => ids.includes(f.id)).map(fn)
+    const byId = new Map(next.map((f) => [f.id, f]))
+    filesRef.current = filesRef.current.map((f) => byId.get(f.id) || f)
+    setFiles(filesRef.current)
+    setPicked(new Set())
+    const queue = [...next]
+    let failed = 0
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      while (queue.length) { try { await saveFile(queue.shift()) } catch { failed++ } }
+    }))
+    showToast(failed ? `${failed} of ${next.length} didn't save. Try again.` : done)
+  }
+  const moveToProject = (ids, pid) => {
+    const pr = projects.find((p) => p.id === pid) || null
+    updateMany(ids, (f) => ({ ...f, projectId: pr?.id || null, category: pr ? pr.category : f.category,
+      subfolder: pr && pr.id === f.projectId ? f.subfolder : null }),
+    `Moved ${ids.length} file${ids.length === 1 ? '' : 's'} to ${pr ? pr.name || 'Untitled' : 'Unsorted'}`)
+  }
+  // Turns a flag on for all picked files, or off if they all have it already
+  const flagMany = (ids, key, label) => {
+    const on = !filesRef.current.filter((f) => ids.includes(f.id)).every((f) => f[key])
+    updateMany(ids, (f) => ({ ...f, [key]: on }), `${on ? 'Marked' : 'Unmarked'} ${ids.length} as ${label}`)
+  }
   const projectName = (id) => projects.find((p) => p.id === id)?.name
   // Delete one or many; they go on the Mac cleanup list
   const removeFiles = (ids) => {
@@ -508,8 +533,18 @@ export default function PrintHub() {
                   <strong>{picked.size} selected</strong>
                   <button className="ph-btn-sm" onClick={() => setPicked(new Set(shown.map((f) => f.id)))}>Select all {shown.length}</button>
                   {picked.size > 0 && <button className="ph-btn-sm" onClick={() => setPicked(new Set())}>Clear</button>}
+                  <select className="ph-proj-select" value="" disabled={!picked.size} aria-label="Move to project"
+                    onChange={(e) => e.target.value && moveToProject([...picked], e.target.value === '__none' ? null : e.target.value)}>
+                    <option value="">Move to project…</option>
+                    {CATS.map((c) => (
+                      <optgroup key={c} label={c}>
+                        {projects.filter((p) => p.category === c).map((p) => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
+                      </optgroup>
+                    ))}
+                    <option value="__none">No project (Unsorted)</option>
+                  </select>
                   {activeProject && (
-                    <select className="ph-proj-select" value="" disabled={!picked.size}
+                    <select className="ph-proj-select" value="" disabled={!picked.size} aria-label="Move to folder"
                       onChange={(e) => {
                         const v = e.target.value
                         if (v === '__new') { const n = addFolder(activeProject.id); if (n) moveFiles([...picked], n) } else if (v) moveFiles([...picked], v === LOOSE ? null : v)
@@ -520,6 +555,8 @@ export default function PrintHub() {
                       <option value="__new">New folder…</option>
                     </select>
                   )}
+                  <button className="ph-btn-sm" disabled={!picked.size} onClick={() => flagMany([...picked], 'fav', 'Favorite')}>★ Favorite</button>
+                  <button className="ph-btn-sm ph-btn-gold-outline" disabled={!picked.size} onClick={() => flagMany([...picked], 'sellable', 'Sellable')}>$ Sellable</button>
                   <div style={{ flex: 1 }} />
                   <button className="ph-btn-sm ph-danger" disabled={!picked.size} onClick={() => removeFiles([...picked])}>Delete {picked.size || ''}</button>
                   <button className="ph-btn-sm" onClick={() => { setSelecting(false); setPicked(new Set()) }}>Done</button>
