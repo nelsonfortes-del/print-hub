@@ -71,7 +71,7 @@ export async function fetchStoredFile(id) {
 
 // ---------- deleting + Mac cleanup list ----------
 
-export const deleteFiles = (ids) => call('delete-files', json('POST', { ids }))
+export const deleteFiles = (ids, macCleanup = true) => call('delete-files', json('POST', { ids, macCleanup }))
 export const markRemoved = (ids) => call('removed', json('POST', { ids }))
 
 // Sends a problem report to the server log (never blocks or throws)

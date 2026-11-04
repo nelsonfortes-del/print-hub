@@ -55,6 +55,14 @@ project…**, **Move to folder…** (inside a project), **★ Favorite**, **$ Se
 or **Delete**. Favorite and Sellable turn the mark on for all picked files, or
 off if they all have it already.
 
+**Duplicates** (Settings): **Scan for duplicates** compares every stored file
+that shares a type and size with another, byte for byte, so it finds exact
+copies even under different names. In each group one copy is kept (the one in
+a project, with print logs, Sellable or Favorite, else the oldest); tap a card
+to keep a different one. Deleting duplicates does not add them to the Mac
+cleanup list, because the kept copy has the same name and size and the
+cleanup script would trash it too. Code: `src/DuplicatesPage.jsx`.
+
 **Deleting and Mac cleanup:** delete one file from its panel, or use **Select**
 to pick many and delete them together. Deleted files go on the **Mac cleanup**
 list (Settings), with the folder they came from. The page makes a script

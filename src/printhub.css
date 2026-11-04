@@ -389,3 +389,19 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-sell-box .ph-hint { font-size: 13px; }
 .ph-drawer-bar .ph-btn-sm { white-space: nowrap; }
 .ph-btn-sm.ph-btn-gold-outline { color: var(--gold); border-color: var(--gold); }
+
+/* Duplicates page */
+.ph-dup-groups { display: flex; flex-direction: column; gap: 24px; }
+.ph-dup-group { display: flex; flex-direction: column; gap: 10px; }
+.ph-dup-card { font: inherit; color: inherit; text-align: left; padding: 0; }
+.ph-dup-card.is-keep { border-color: var(--success); }
+.ph-dup-card.is-gone { opacity: 0.6; }
+.ph-dup-card.is-gone:hover { opacity: 1; }
+.ph-dup-tag {
+  position: absolute; top: 6px; left: 6px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 4px;
+  background: var(--danger); color: var(--bg);
+}
+.ph-dup-tag.keep { background: var(--success); }
+.ph-dup-progress { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; max-width: 420px; color: var(--ink-2); }
+.ph-dup-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.ph-dup-bar span { display: block; height: 100%; background: var(--accent); transition: width .2s; }

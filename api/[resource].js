@@ -12,7 +12,7 @@ import {
 // /api/upload                   POST    Vercel Blob client-upload handshake
 // /api/local-file?id=&name=     PUT     raw file body (developer's computer only)
 // /api/file?id=                 GET     download the stored file
-// /api/delete-files            POST    {ids} delete several (adds them to the Mac cleanup list)
+// /api/delete-files            POST    {ids, macCleanup?} delete several (adds them to the Mac cleanup list unless macCleanup is false)
 // /api/folder                   POST    {projectId, from, to|null} rename or remove a project folder
 // /api/move-files               POST    {ids, subfolder} put files into a folder
 // /api/removed                  POST    {ids} mark cleanup-list entries as handled
@@ -73,7 +73,7 @@ export default async function handler(req, res) {
 
     if (resource === 'folder' && method === 'POST') return res.json(await changeFolder(body))
     if (resource === 'move-files' && method === 'POST') return res.json(await moveToFolder(body))
-    if (resource === 'delete-files' && method === 'POST') return res.json(await deleteFiles(body.ids))
+    if (resource === 'delete-files' && method === 'POST') return res.json(await deleteFiles(body.ids, body.macCleanup !== false))
     if (resource === 'removed' && method === 'POST') return res.json(await markRemoved(body.ids))
 
     if (resource === 'thumb' && method === 'PUT') return res.json(await saveThumb(body))
