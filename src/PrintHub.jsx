@@ -4,6 +4,7 @@ import { matchProject, normalize } from './autosort'
 import { grabDropped, fromPicker, expand } from './collect'
 import { makeThumb, canThumb } from './thumbs'
 import { cleanupScript, downloadText } from './cleanup'
+import DuplicatesPage from './DuplicatesPage'
 import {
   loadAll, saveFile, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved, reportProblem, changeFolder, moveToFolder,
 } from './store'
@@ -505,6 +506,7 @@ export default function PrintHub() {
             <div className="ph-label">Settings</div>
             <NavItem label="Printers" count={printers.length} active={view === 'printers'} onClick={() => setView('printers')} />
             <NavItem label="Materials" count={materials.length} active={view === 'materials'} onClick={() => setView('materials')} />
+            <NavItem label="Duplicates" count="" active={view === 'duplicates'} onClick={() => setView('duplicates')} />
             <NavItem label="Mac cleanup" count={removed.length} active={view === 'cleanup'} onClick={() => setView('cleanup')} />
           </nav>
           {view === 'catalog' && allTags.length > 0 && (
@@ -685,6 +687,14 @@ export default function PrintHub() {
               ]}
               onAdd={() => addProfile('printers', { id: uid('p'), name: '', nozzle: '0.4', volume: '', notes: '' })}
             />
+          )}
+
+          {load.state === 'ready' && view === 'duplicates' && (
+            <DuplicatesPage files={files} projectName={projectName}
+              onDelete={(ids) => {
+                setFiles((fs) => fs.filter((f) => !ids.includes(f.id)))
+                deleteFiles(ids, false).then(() => showToast(`Deleted ${ids.length} duplicate${ids.length === 1 ? '' : 's'}`)).catch(saveFailed)
+              }} />
           )}
 
           {load.state === 'ready' && view === 'cleanup' && (

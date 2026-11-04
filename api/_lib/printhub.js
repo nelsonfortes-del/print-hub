@@ -294,13 +294,15 @@ export async function readThumb(id) {
 }
 
 // Deleting also adds the file to the Mac cleanup list (ph_removed).
-export async function deleteFiles(ids) {
+// macCleanup false (removing duplicates): the copy that's kept has the same
+// name and size, so the Mac cleanup script would find and trash it too.
+export async function deleteFiles(ids, macCleanup = true) {
   ids = (Array.isArray(ids) ? ids : [ids]).slice(0, 1000).map(okId)
   if (!ids.length) return { ok: true, deleted: 0 }
   const rows = await q('delete from ph_files where id = any($1::text[]) returning id, name, ext, size, source_path, blob_path', [ids])
   const now = Date.now()
   for (const r of rows) {
-    await q(`insert into ph_removed (id, name, ext, size, source_path, removed_at) values ($1,$2,$3,$4,$5,$6)
+    if (macCleanup) await q(`insert into ph_removed (id, name, ext, size, source_path, removed_at) values ($1,$2,$3,$4,$5,$6)
              on conflict (id) do update set removed_at = excluded.removed_at, cleaned = false`,
       [r.id, r.name, r.ext, r.size, r.source_path, now])
     if (r.blob_path) await removeStored(r.blob_path)
