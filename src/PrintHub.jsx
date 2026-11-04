@@ -30,6 +30,7 @@ const LOOSE = '__loose'
 
 const fmtSize = (b) => (b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB')
 const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+const fmtPrice = (n) => '$' + (Number.isInteger(n) ? n : n.toFixed(2))
 const segStyle = (active, kind) => {
   if (!active) return undefined
   const c = kind === 'fail' ? '#c4432c' : kind === 'ok' ? '#23804f' : 'var(--accent)'
@@ -378,7 +379,7 @@ export default function PrintHub() {
 
   const ql = q.trim().toLowerCase()
   const shown = useMemo(() => files.filter((f) =>
-    (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
+    (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Sellable' ? f.sellable : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
     (!project || f.projectId === project) &&
     (!activeFolder || (activeFolder === LOOSE ? !f.subfolder : f.subfolder === activeFolder)) &&
     (!tag || f.tags.includes(tag)) &&
@@ -388,6 +389,7 @@ export default function PrintHub() {
 
   const navCount = (label) =>
     label === 'All' ? files.length : label === 'Favorites' ? files.filter((f) => f.fav).length
+      : label === 'Sellable' ? files.filter((f) => f.sellable).length
       : label === 'Unsorted' ? files.filter((f) => !f.projectId).length : files.filter((f) => f.category === label).length
   const catTitle = activeProject ? activeProject.name : cat === 'All' ? 'All files' : cat
   const projectFiles = activeProject ? files.filter((f) => f.projectId === activeProject.id) : []
@@ -427,8 +429,8 @@ export default function PrintHub() {
         <aside className="ph-side">
           <nav className="ph-nav">
             <div className="ph-label">Library</div>
-            {['All', 'Favorites', ...CATS, 'Unsorted'].map((label) => (
-              <NavItem key={label} label={label} count={navCount(label)} active={view === 'catalog' && !project && cat === label}
+            {['All', 'Favorites', 'Sellable', ...CATS, 'Unsorted'].map((label) => (
+              <NavItem key={label} label={label} gold={label === 'Sellable'} count={navCount(label)} active={view === 'catalog' && !project && cat === label}
                 onClick={() => { setCat(label); setProject(null); setView('catalog') }} />
             ))}
           </nav>
@@ -555,6 +557,7 @@ export default function PrintHub() {
                           <button className="ph-fav" style={{ color: f.fav ? BLUE : 'var(--muted)' }}
                             aria-label={f.fav ? 'Remove favorite' : 'Add favorite'}
                             onClick={(e) => { e.stopPropagation(); toggleFav(f.id) }}>{f.fav ? '★' : '☆'}</button>
+                          {f.sellable && <span className="ph-sell-tag">{f.price ? fmtPrice(f.price) : 'Sellable'}</span>}
                         </div>
                         <div className="ph-card-body">
                           <div className="ph-card-name">{f.name}</div>
@@ -667,10 +670,10 @@ export default function PrintHub() {
   )
 }
 
-function NavItem({ label, count, active, onClick }) {
+function NavItem({ label, count, active, onClick, gold }) {
   return (
-    <button className={'ph-nav-item' + (active ? ' is-active' : '')} onClick={onClick}>
-      <span>{label}</span>
+    <button className={'ph-nav-item' + (active ? ' is-active' : '') + (gold ? ' is-gold' : '')} onClick={onClick}>
+      <span>{gold ? '$ ' : ''}{label}</span>
       <span className="ph-mono ph-nav-count">{count}</span>
     </button>
   )
@@ -713,6 +716,14 @@ function ProfileTable({ title, addLabel, sub, minWidth, cols, headers, kind, row
 
 function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryThumb, printers, materials, projects, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
   const [tagInput, setTagInput] = useState('')
+  const [price, setPrice] = useState(file.price ?? '')
+  useEffect(() => { setPrice(file.price ?? '') }, [file.id, file.price])
+  const savePrice = () => {
+    const n = Math.round(Number(String(price).replace(/[^0-9.]/g, '')) * 100) / 100
+    const next = n > 0 ? n : null
+    if (next !== (file.price ?? null)) update((f) => ({ ...f, price: next }))
+    setPrice(next ?? '')
+  }
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }))
   const printerOpts = [...new Set([...printers.map((p) => p.name).filter(Boolean), draft.printer].filter(Boolean))]
   const materialOpts = [...new Set([...materials.map((m) => m.name).filter(Boolean), draft.material].filter(Boolean))]
@@ -737,7 +748,11 @@ function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryTh
           {uploadPct != null && <span className="ph-mono ph-meta">Uploading {uploadPct}%</span>}
           {file.hasFile && uploadPct == null && <a className="ph-btn-sm ph-btn-link" href={downloadUrl(file.id)} download>Download</a>}
           <button className="ph-btn-sm" style={{ color: file.fav ? BLUE : 'var(--ink)' }} onClick={onFav}>
-            {file.fav ? '★ Favorite' : '☆ Favorite'}
+            {file.fav ? '★ Fav' : '☆ Fav'}
+          </button>
+          <button className={'ph-btn-sm' + (file.sellable ? ' ph-btn-gold' : '')}
+            onClick={() => { update((f) => ({ ...f, sellable: !f.sellable })); showToast(file.sellable ? 'Taken off Sellable' : 'Added to Sellable') }}>
+            {file.sellable ? '$ Sellable' : '+ Sellable'}
           </button>
           <button className="ph-btn-sm ph-danger" onClick={onDelete}>Delete</button>
         </div>
@@ -757,6 +772,15 @@ function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryTh
               : thumbBusy ? <span className="ph-badge ph-badge-lg">Making preview…</span>
               : <button className="ph-btn-sm" onClick={onRetryThumb}>Make preview</button>}
           </div>
+
+          {file.sellable && (
+            <label className="ph-lbl ph-sell-box">Asking price
+              <input className="ph-input" inputMode="decimal" placeholder="$0.00" value={price}
+                onChange={(e) => setPrice(e.target.value)} onBlur={savePrice}
+                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+              <span className="ph-hint">Only clean, tested prints belong here.</span>
+            </label>
+          )}
 
           <div className="ph-col4">
             <div className="ph-drawer-title">{file.name}</div>

@@ -79,3 +79,7 @@ create table if not exists ph_removed (
 -- Folders inside a project (B: Honeycomb Wall -> Tiles, Trays, Clips)
 alter table ph_projects add column if not exists folders jsonb not null default '[]';
 alter table ph_files add column if not exists subfolder text;
+
+-- Sellable shelf: clean, tested prints worth selling, with an asking price
+alter table ph_files add column if not exists sellable boolean not null default false;
+alter table ph_files add column if not exists price numeric(8,2);
