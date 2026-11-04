@@ -1,6 +1,6 @@
 /* global Buffer */
 import {
-  httpError, readRaw, blobToken, databaseUrl,
+  httpError, readRaw, blobToken, blobOn, databaseUrl,
   loadAll, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload, changeFolder, moveToFolder,
   savePrinter, saveMaterial, saveProject, deleteProfile,
   saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb,
@@ -81,15 +81,31 @@ export default async function handler(req, res) {
     if (resource === 'attach' && method === 'POST') return res.json(await attachFile(body.id, body.pathname))
 
     if (resource === 'upload' && method === 'POST') {
-      if (!blobToken()) throw httpError(503, 'File storage (Vercel Blob) is not turned on')
-      const { handleUpload } = await import('@vercel/blob/client')
-      const result = await handleUpload({
+      if (!blobOn()) throw httpError(503, 'File storage (Vercel Blob) is not turned on')
+      const checkPath = (pathname) => { if (!String(pathname).startsWith(BLOB_PREFIX)) throw httpError(400, 'Bad file path') }
+      if (blobToken()) {
+        const { handleUpload } = await import('@vercel/blob/client')
+        const result = await handleUpload({
+          body,
+          request: req,
+          token: blobToken(),
+          onBeforeGenerateToken: async (pathname) => {
+            checkPath(pathname)
+            return { maximumSizeInBytes: MAX_FILE_BYTES, addRandomSuffix: true }
+          },
+        })
+        return res.json(result)
+      }
+      // Stores without a token (BLOB_STORE_ID): hand the browser a presigned upload address
+      const { handleUploadPresigned } = await import('@vercel/blob/client')
+      const { issueSignedToken } = await import('@vercel/blob')
+      const result = await handleUploadPresigned({
         body,
         request: req,
-        token: blobToken(),
-        onBeforeGenerateToken: async (pathname) => {
-          if (!String(pathname).startsWith(BLOB_PREFIX)) throw httpError(400, 'Bad file path')
-          return { maximumSizeInBytes: MAX_FILE_BYTES, addRandomSuffix: true }
+        getSignedToken: async (pathname) => {
+          checkPath(pathname)
+          const token = await issueSignedToken({ pathname: '*', operations: ['put'], maximumSizeInBytes: MAX_FILE_BYTES })
+          return { token, urlOptions: { maximumSizeInBytes: MAX_FILE_BYTES, addRandomSuffix: true } }
         },
       })
       return res.json(result)

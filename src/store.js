@@ -14,7 +14,12 @@ const json = (method, body) => ({ method, body: JSON.stringify(body) })
 
 // The Blob store is private unless the server says otherwise (BLOB_ACCESS)
 let blobAccess = 'private'
-export const loadAll = () => call('state').then((d) => { blobAccess = d.blobAccess || 'private'; return d })
+let uploadMode = 'token' // 'presigned' when the store has no token (BLOB_STORE_ID)
+export const loadAll = () => call('state').then((d) => {
+  blobAccess = d.blobAccess || 'private'
+  uploadMode = d.uploadMode || 'token'
+  return d
+})
 export const saveFile = (file) => call('files', json('PUT', file))
 export const deleteFile = (id) => call('files?id=' + encodeURIComponent(id), { method: 'DELETE' })
 export const saveProfile = (kind, row) => call(kind, json('PUT', row))
@@ -27,11 +32,12 @@ export const downloadUrl = (id) => `/api/file?id=${encodeURIComponent(id)}`
 export async function uploadFile(storage, id, file, onProgress) {
   const safe = file.name.replace(/[^A-Za-z0-9._ -]/g, '_')
   if (storage === 'blob') {
-    const { upload } = await import('@vercel/blob/client')
-    const blob = await upload(`printhub/${id}/${safe}`, file, {
+    const { upload, uploadPresigned } = await import('@vercel/blob/client')
+    const blob = await (uploadMode === 'presigned' ? uploadPresigned : upload)(`printhub/${id}/${safe}`, file, {
       access: blobAccess,
       handleUploadUrl: '/api/upload',
-      multipart: file.size > 20 * 1024 * 1024,
+      // presigned uploads go up in one piece; the token kind splits big files
+      multipart: uploadMode !== 'presigned' && file.size > 20 * 1024 * 1024,
       onUploadProgress: onProgress ? (e) => onProgress(e.percentage) : undefined,
     })
     await call('attach', json('POST', { id, pathname: blob.pathname }))
