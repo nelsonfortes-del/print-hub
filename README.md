@@ -44,6 +44,17 @@ while a folder is open go into it; when you drop a folder from your Mac, files
 inside a subfolder with the same name as a project folder (e.g. `Tiles/`) go
 into that folder.
 
+**File dates:** each file keeps its own date from your Mac (when it was last
+saved), shown on its card. Sort with the menu above the files: Newest first,
+Oldest first, Name, or Recently added. Files added before dates were kept show
+their added date; drag them in again to fill in the real one. Files from inside
+a `.zip` don't carry a date. Stored as `ph_files.modified`.
+
+**Select mode:** press **Select**, tap files (or **Select all**), then **Move to
+project…**, **Move to folder…** (inside a project), **★ Favorite**, **$ Sellable**
+or **Delete**. Favorite and Sellable turn the mark on for all picked files, or
+off if they all have it already.
+
 **Deleting and Mac cleanup:** delete one file from its panel, or use **Select**
 to pick many and delete them together. Deleted files go on the **Mac cleanup**
 list (Settings), with the folder they came from. The page makes a script

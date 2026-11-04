@@ -30,6 +30,10 @@ const LOOSE = '__loose'
 
 const fmtSize = (b) => (b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB')
 const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+// A file's own date (last saved on the Mac); older entries fall back to when it was added
+const fileDate = (f) => f.modified || f.added
+const SORTS = { newest: 'Newest first', oldest: 'Oldest first', name: 'Name A–Z', added: 'Recently added' }
+const SORT_KEY = 'printhub-sort'
 const fmtPrice = (n) => '$' + (Number.isInteger(n) ? n : n.toFixed(2))
 const segStyle = (active, kind) => {
   if (!active) return undefined
@@ -65,6 +69,8 @@ export default function PrintHub() {
   const [folder, setFolder] = useState(null) // folder inside the project: null = all, LOOSE = no folder
   const [editFolders, setEditFolders] = useState(false)
   const [q, setQ] = useState('')
+  const [sort, setSort] = useState(() => { try { return SORTS[localStorage.getItem(SORT_KEY)] ? localStorage.getItem(SORT_KEY) : 'newest' } catch { return 'newest' } })
+  useEffect(() => { try { localStorage.setItem(SORT_KEY, sort) } catch { /* private mode */ } }, [sort])
   const [sel, setSel] = useState(null)
   const [dragging, setDragging] = useState(false)
   const [toast, setToast] = useState(null)
@@ -189,15 +195,26 @@ export default function PrintHub() {
     // a duplicate whose 3D file was never stored gets the file filled in instead
     const missing = new Map(filesRef.current.filter((f) => !f.hasFile).map((f) => [key(f.name, f.ext, f.size), f]))
     const refill = []
+    const undated = new Map(filesRef.current.filter((f) => f.hasFile && !f.modified).map((f) => [key(f.name, f.ext, f.size), f]))
+    const dated = []
+    const dates = new Map()
     const ok = supported.filter(({ file }) => {
       const parts = file.name.split('.'); const ext = parts.pop().toLowerCase()
       const k = key(parts.join('.'), ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext, file.size)
-      if (missing.has(k)) { refill.push({ entry: missing.get(k), file }); missing.delete(k); return false }
+      if (missing.has(k)) {
+        const old = missing.get(k)
+        refill.push(old.modified || !file.lastModified ? { entry: old, file } : { entry: { ...old, modified: file.lastModified }, file, save: true })
+        missing.delete(k)
+        return false
+      }
+      if (undated.has(k) && file.lastModified) { dated.push(undated.get(k).id); dates.set(undated.get(k).id, file.lastModified); undated.delete(k) }
       if (have.has(k)) return false
       have.add(k)
       return true
     })
     const dupes = supported.length - ok.length - refill.length
+    if (dated.length) updateMany(dated, (f) => ({ ...f, modified: dates.get(f.id) }), `Added the file date to ${dated.length} file${dated.length === 1 ? '' : 's'}`)
+    if (!ok.length && !refill.length && dated.length) return
     if (!ok.length && refill.length) return uploadAll(refill, `Saving ${refill.length} missing file${refill.length === 1 ? '' : 's'}`, true)
     if (!ok.length) return showToast(`Already in your library: ${dupes} file${dupes === 1 ? '' : 's'}`)
     const added = ok.map(({ file: f, folder }) => {
@@ -216,6 +233,7 @@ export default function PrintHub() {
           id: uid('f'), name: parts.join('.'),
           ext: ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext,
           size: f.size, category: pr ? pr.category : fallbackCat, projectId: pr?.id || null, subfolder: pr ? sub : null, tags: folderTag ? [folderTag] : [], fav: false, prints: [], added: Date.now(), hasFile: false,
+          modified: f.lastModified || null,
           sourcePath: folder ? `${folder}/${f.name}` : f.name,
         },
         file: f,
@@ -234,21 +252,21 @@ export default function PrintHub() {
         : `Added ${plural(added.length, 'file')} to Unsorted`
     const skippedNote = (dupes ? ` · ${dupes} already here` : '') + (skipped ? ` · skipped ${skipped} non-3D` : '')
     showToast(summary + skippedNote)
-    return uploadAll([...added.map((a) => ({ ...a, isNew: true })), ...refill], summary + skippedNote + (refill.length ? ` · filled in ${refill.length} missing` : ''))
+    return uploadAll([...added.map((a) => ({ ...a, save: true })), ...refill], summary + skippedNote + (refill.length ? ` · filled in ${refill.length} missing` : ''))
   }
 
-  // Sends each file to storage; isNew rows are saved to the database first.
+  // Sends each file to storage; rows marked save go to the database first.
   // Refills (rows already there, file missing) show their own toast up front.
   const uploadAll = async (list, summary, refillOnly = false) => {
     if (refillOnly) showToast(summary + '…')
     let failed = 0
     let lastError = ''
-    for (const { entry, file, isNew } of list) {
+    for (const { entry, file, save } of list) {
       try {
-        if (isNew) await saveFile(entry)
+        if (save) await saveFile(entry)
         setUploading((u) => ({ ...u, [entry.id]: 0 }))
         await uploadFile(storage, entry.id, file, (pct) => setUploading((u) => ({ ...u, [entry.id]: Math.round(pct) })))
-        setFiles((fs) => fs.map((f) => (f.id === entry.id ? { ...f, hasFile: true } : f)))
+        setFiles((fs) => fs.map((f) => (f.id === entry.id ? { ...f, hasFile: true, modified: entry.modified ?? f.modified } : f)))
         thumbQueue.current.push({ id: entry.id, ext: entry.ext, blob: file })
         runThumbs()
       } catch (e) {
@@ -373,6 +391,31 @@ export default function PrintHub() {
     moveToFolder(ids, sub || null).then(() => showToast(`Moved ${ids.length} file${ids.length === 1 ? '' : 's'} to ${sub || 'no folder'}`)).catch(saveFailed)
     setPicked(new Set())
   }
+  // Changes many files at once (Select mode), then saves them a few at a time
+  const updateMany = async (ids, fn, done) => {
+    const next = filesRef.current.filter((f) => ids.includes(f.id)).map(fn)
+    const byId = new Map(next.map((f) => [f.id, f]))
+    filesRef.current = filesRef.current.map((f) => byId.get(f.id) || f)
+    setFiles(filesRef.current)
+    setPicked(new Set())
+    const queue = [...next]
+    let failed = 0
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      while (queue.length) { try { await saveFile(queue.shift()) } catch { failed++ } }
+    }))
+    showToast(failed ? `${failed} of ${next.length} didn't save. Try again.` : done)
+  }
+  const moveToProject = (ids, pid) => {
+    const pr = projects.find((p) => p.id === pid) || null
+    updateMany(ids, (f) => ({ ...f, projectId: pr?.id || null, category: pr ? pr.category : f.category,
+      subfolder: pr && pr.id === f.projectId ? f.subfolder : null }),
+    `Moved ${ids.length} file${ids.length === 1 ? '' : 's'} to ${pr ? pr.name || 'Untitled' : 'Unsorted'}`)
+  }
+  // Turns a flag on for all picked files, or off if they all have it already
+  const flagMany = (ids, key, label) => {
+    const on = !filesRef.current.filter((f) => ids.includes(f.id)).every((f) => f[key])
+    updateMany(ids, (f) => ({ ...f, [key]: on }), `${on ? 'Marked' : 'Unmarked'} ${ids.length} as ${label}`)
+  }
   const projectName = (id) => projects.find((p) => p.id === id)?.name
   // Delete one or many; they go on the Mac cleanup list
   const removeFiles = (ids) => {
@@ -398,7 +441,10 @@ export default function PrintHub() {
     (!activeFolder || (activeFolder === LOOSE ? !f.subfolder : f.subfolder === activeFolder)) &&
     (!tag || f.tags.includes(tag)) &&
     (!ql || f.name.toLowerCase().includes(ql) || f.tags.some((t) => t.includes(ql)))
-  ), [files, cat, project, activeFolder, tag, ql])
+  ).sort(sort === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })
+    : sort === 'added' ? (a, b) => b.added - a.added
+    : sort === 'oldest' ? (a, b) => fileDate(a) - fileDate(b)
+    : (a, b) => fileDate(b) - fileDate(a)), [files, cat, project, activeFolder, tag, ql, sort])
   const allTags = useMemo(() => [...new Set(files.flatMap((f) => f.tags))].sort(), [files])
 
   const navCount = (label) =>
@@ -499,6 +545,9 @@ export default function PrintHub() {
                   )}
                 </div>
                 <div className="ph-head-actions">
+                  <select className="ph-proj-select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort files">
+                    {Object.entries(SORTS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
                   <div className="ph-hint">Drop 3D files, folders or .zip files anywhere</div>
                   {shown.length > 0 && !selecting && <button className="ph-btn-sm" onClick={() => setSelecting(true)}>Select</button>}
                 </div>
@@ -508,8 +557,18 @@ export default function PrintHub() {
                   <strong>{picked.size} selected</strong>
                   <button className="ph-btn-sm" onClick={() => setPicked(new Set(shown.map((f) => f.id)))}>Select all {shown.length}</button>
                   {picked.size > 0 && <button className="ph-btn-sm" onClick={() => setPicked(new Set())}>Clear</button>}
+                  <select className="ph-proj-select" value="" disabled={!picked.size} aria-label="Move to project"
+                    onChange={(e) => e.target.value && moveToProject([...picked], e.target.value === '__none' ? null : e.target.value)}>
+                    <option value="">Move to project…</option>
+                    {CATS.map((c) => (
+                      <optgroup key={c} label={c}>
+                        {projects.filter((p) => p.category === c).map((p) => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
+                      </optgroup>
+                    ))}
+                    <option value="__none">No project (Unsorted)</option>
+                  </select>
                   {activeProject && (
-                    <select className="ph-proj-select" value="" disabled={!picked.size}
+                    <select className="ph-proj-select" value="" disabled={!picked.size} aria-label="Move to folder"
                       onChange={(e) => {
                         const v = e.target.value
                         if (v === '__new') { const n = addFolder(activeProject.id); if (n) moveFiles([...picked], n) } else if (v) moveFiles([...picked], v === LOOSE ? null : v)
@@ -520,6 +579,8 @@ export default function PrintHub() {
                       <option value="__new">New folder…</option>
                     </select>
                   )}
+                  <button className="ph-btn-sm" disabled={!picked.size} onClick={() => flagMany([...picked], 'fav', 'Favorite')}>★ Favorite</button>
+                  <button className="ph-btn-sm ph-btn-gold-outline" disabled={!picked.size} onClick={() => flagMany([...picked], 'sellable', 'Sellable')}>$ Sellable</button>
                   <div style={{ flex: 1 }} />
                   <button className="ph-btn-sm ph-danger" disabled={!picked.size} onClick={() => removeFiles([...picked])}>Delete {picked.size || ''}</button>
                   <button className="ph-btn-sm" onClick={() => { setSelecting(false); setPicked(new Set()) }}>Done</button>
@@ -575,6 +636,7 @@ export default function PrintHub() {
                         </div>
                         <div className="ph-card-body">
                           <div className="ph-card-name">{f.name}</div>
+                          <div className="ph-card-date ph-mono">{fmtDate(sort === 'added' ? f.added : fileDate(f))}</div>
                           <div className="ph-card-meta">
                             <span className="ph-ellipsis">{activeProject ? (f.subfolder || 'Not in a folder') : (projectName(f.projectId) || f.category)}</span>
                             {uploading[f.id] != null
@@ -799,7 +861,7 @@ function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryTh
           <div className="ph-col4">
             <div className="ph-drawer-title">{file.name}</div>
             <div className="ph-mono ph-meta">
-              {file.ext.toUpperCase()} · {fmtSize(file.size)} · added {fmtDate(file.added)}
+              {file.ext.toUpperCase()} · {fmtSize(file.size)}{file.modified ? ` · file date ${fmtDate(file.modified)}` : ''} · added {fmtDate(file.added)}
             </div>
           </div>
 

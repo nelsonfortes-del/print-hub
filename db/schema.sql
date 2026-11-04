@@ -83,3 +83,6 @@ alter table ph_files add column if not exists subfolder text;
 -- Sellable shelf: clean, tested prints worth selling, with an asking price
 alter table ph_files add column if not exists sellable boolean not null default false;
 alter table ph_files add column if not exists price numeric(8,2);
+
+-- The file's own date from the computer it came from (last saved), ms since 1970
+alter table ph_files add column if not exists modified bigint;
