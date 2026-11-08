@@ -70,7 +70,9 @@ list (Settings), with the folder they came from. The page makes a script
 folder with the exact same name and size, lists them, asks, and moves them to
 the Trash (Put Back still works). Then press **Mark all as done**. The starting
 printers, filament and projects come from Nelson's 3D printing notes and are
-loaded once; after that, everything is edited in the app.
+loaded once; after that, everything is edited in the app. Easiest: the Mac cleanup page shows one command to paste in Terminal,
+`bash <(curl -fsSL <site>/api/cleanup-script)`, which runs the same script straight
+from the site (no download).
 
 ## Where things are stored
 

@@ -63,6 +63,10 @@ export function downloadText(filename, text) {
   const a = document.createElement('a')
   a.href = url
   a.download = filename
+  // Safari only downloads from a link that's on the page, and needs the URL a while
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
 }

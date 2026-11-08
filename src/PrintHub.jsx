@@ -1089,6 +1089,8 @@ function ProjectsPage({ projects, files, onEdit, onRemove, onAdd, onOpen }) {
 
 function CleanupPage({ removed, onDownload, onDone }) {
   const [copied, setCopied] = useState(false)
+  // bash <(…) rather than curl | bash, so the script can still ask y/n
+  const runCmd = `bash <(curl -fsSL ${window.location.origin}/api/cleanup-script)`
   return (
     <>
       <div className="ph-head-row" style={{ marginBottom: 6 }}>
@@ -1104,16 +1106,16 @@ function CleanupPage({ removed, onDownload, onDone }) {
         <>
           <ol className="ph-steps">
             <li>
-              <button className="ph-btn-primary" onClick={onDownload}>Download cleanup script</button>
-              <span className="ph-muted13"> for these {removed.length} file{removed.length === 1 ? '' : 's'}</span>
-            </li>
-            <li>
-              Open <strong>Terminal</strong> on your Mac, type <code className="ph-code">bash </code> (with a space), drag the downloaded
-              file into the window, and press Return.
-              <button className="ph-btn-sm" style={{ marginLeft: 8 }}
-                onClick={() => { navigator.clipboard?.writeText('bash ~/Downloads/print-hub-cleanup.sh'); setCopied(true) }}>
-                {copied ? 'Copied' : 'Copy command'}
-              </button>
+              Open <strong>Terminal</strong> on your Mac, paste this, and press Return:
+              <div className="ph-cmd-row">
+                <code className="ph-code ph-cmd">{runCmd}</code>
+                <button className="ph-btn-primary"
+                  onClick={() => navigator.clipboard?.writeText(runCmd).then(() => setCopied(true)).catch(() => {})}>
+                  {copied ? 'Copied' : 'Copy command'}
+                </button>
+              </div>
+              <span className="ph-muted13">It cleans up these {removed.length} file{removed.length === 1 ? '' : 's'}. </span>
+              <button className="ph-btn-link-sm" onClick={onDownload}>Or download the script</button>
             </li>
             <li>It shows what it found and asks before moving anything to the Trash (you can still put files back from the Trash).</li>
             <li>

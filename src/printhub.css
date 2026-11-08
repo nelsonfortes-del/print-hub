@@ -405,3 +405,8 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-dup-progress { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; max-width: 420px; color: var(--ink-2); }
 .ph-dup-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .ph-dup-bar span { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+
+/* Mac cleanup: the Terminal command */
+.ph-cmd-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.ph-cmd { overflow-wrap: anywhere; user-select: all; }
+.ph-btn-link-sm { background: none; border: none; padding: 0; color: var(--accent-text); font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer; }
