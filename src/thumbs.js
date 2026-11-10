@@ -1,5 +1,6 @@
 // Makes a preview picture for a 3D file, right in the browser.
-//  1. 3MF from a slicer: use the plate picture saved inside the file.
+//  1. 3MF: use the picture saved inside the file (the one the file itself
+//     names as its thumbnail, else a slicer plate picture under Metadata/).
 //  2. G-code from Orca-based slicers (Anycubic Slicer Next, Bambu, Orca):
 //     use the preview picture embedded in the file's comments.
 //  3. Otherwise draw the model with three.js (STL, OBJ, 3MF, G-code).
@@ -41,17 +42,62 @@ export async function makeThumb(blob, ext) {
 
 // ---------- pictures already inside the file ----------
 
+const IMG_RE = /\.(png|jpe?g)$/i
+const SKIP_IMG_RE = /_small|pick_|top_|_no_light/i
+const MAX_EMBED_BYTES = 1.4 * 1024 * 1024
+
+export function pick3mfPicture(entries) {
+  const byLower = new Map(Object.keys(entries).map((n) => [n.toLowerCase(), n]))
+  const relsName = byLower.get('_rels/.rels')
+  if (relsName) {
+    const xml = new TextDecoder().decode(entries[relsName])
+    for (const m of xml.matchAll(/<Relationship\b[^>]*>/gi)) {
+      if (!/Type="[^"]*\/thumbnail"/i.test(m[0])) continue
+      const target = /Target="([^"]+)"/i.exec(m[0])?.[1]
+      const name = target && byLower.get(decodeURIComponent(target).replace(/^\//, '').toLowerCase())
+      if (name && entries[name].length) return name
+    }
+  }
+  const imgs = Object.keys(entries).filter((n) => IMG_RE.test(n) && !SKIP_IMG_RE.test(n) && entries[n].length)
+  if (!imgs.length) return null
+  // plate_1 (Bambu/Orca/Anycubic) or thumbnail (Prusa/Cura); else the biggest
+  return imgs.find((n) => /plate_1\.(png|jpe?g)$/i.test(n)) || imgs.find((n) => /(^|\/)thumbnail\.(png|jpe?g)$/i.test(n))
+    || imgs.sort((a, b) => entries[b].length - entries[a].length)[0]
+}
+
+export const imageType = (bytes) =>
+  bytes[0] === 0x89 && bytes[1] === 0x50 ? 'image/png'
+    : bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg'
+      : null
+
 async function picFrom3mf(blob) {
   const { unzipSync } = await import('fflate')
-  const files = unzipSync(new Uint8Array(await blob.arrayBuffer()), {
-    filter: (f) => /^metadata\/.*\.png$/i.test(f.name) && !/_small|pick_|top_|_no_light/i.test(f.name),
-  })
-  const names = Object.keys(files)
-  if (!names.length) return null
-  // plate_1.png (Bambu/Orca/Anycubic) or thumbnail.png (Prusa/Cura); else the biggest
-  const pick = names.find((n) => /plate_1\.png$/i.test(n)) || names.find((n) => /thumbnail\.png$/i.test(n))
-    || names.sort((a, b) => files[b].length - files[a].length)[0]
-  return new Blob([files[pick]], { type: 'image/png' })
+  const data = new Uint8Array(await blob.arrayBuffer())
+  const wanted = (n) => n.toLowerCase() === '_rels/.rels' || (IMG_RE.test(n) && /^(metadata|auxiliaries)\//i.test(n))
+  let entries = unzipSync(data, { filter: (f) => wanted(f.name) })
+  let name = pick3mfPicture(entries)
+  if (!name) {
+    // the official thumbnail may live outside Metadata/
+    entries = { ...entries, ...unzipSync(data, { filter: (f) => IMG_RE.test(f.name) && !wanted(f.name) }) }
+    name = pick3mfPicture(entries)
+  }
+  if (!name) return null
+  const bytes = entries[name]
+  const type = imageType(bytes)
+  if (!type) return null
+  const pic = new Blob([bytes], { type })
+  return pic.size > MAX_EMBED_BYTES ? shrink(pic) : pic
+}
+
+async function shrink(pic) {
+  const bmp = await createImageBitmap(pic)
+  const scale = Math.min(1, W / bmp.width, H / bmp.height)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bmp.width * scale)
+  canvas.height = Math.round(bmp.height * scale)
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height)
+  bmp.close()
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.88))
 }
 
 async function picFromGcode(blob) {
