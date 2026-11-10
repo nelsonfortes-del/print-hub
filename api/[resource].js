@@ -3,8 +3,9 @@ import {
   httpError, readRaw, blobToken, blobOn, databaseUrl,
   loadAll, listRemoved, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload, changeFolder, moveToFolder,
   savePrinter, saveMaterial, saveProject, deleteProfile,
-  saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb,
+  saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb, trashFiles, restoreFiles, emptyTrash,
 } from './_lib/printhub.js'
+import { linkTasks, linkDone, linkScan, linkTicket, linkUploaded, requestScan, macAppZip, hubOrigin } from './_lib/link.js'
 import { cleanupScript } from '../src/cleanup.js'
 
 // /api/state                    GET     files + printers + materials + storage mode
@@ -13,7 +14,15 @@ import { cleanupScript } from '../src/cleanup.js'
 // /api/upload                   POST    Vercel Blob client-upload handshake
 // /api/local-file?id=&name=     PUT     raw file body (developer's computer only)
 // /api/file?id=                 GET     download the stored file
-// /api/delete-files            POST    {ids, macCleanup?} delete several (adds them to the Mac cleanup list unless macCleanup is false)
+// /api/delete-files            POST    {ids, macCleanup?} delete for good (tells the Mac, unless macCleanup is false)
+// /api/trash-files | restore-files  POST  {ids} move into / out of the Trash
+// /api/empty-trash              POST    delete everything in the Trash for good
+// /api/link-app                 GET     the Mac link setup app (zip)
+// /api/link-sync                POST    Sync now: the Mac looks at the inbox on its next check-in
+// /api/link-tasks?status=&inbox=  GET   Mac check-in: jobs to do (text)
+// /api/link-done | link-scan    POST    Mac results / inbox listing (text, tab-separated)
+// /api/link-ticket?id=          POST    where and how the Mac uploads one file
+// /api/link-uploaded?id=        POST    the Mac finished uploading one file
 // /api/folder                   POST    {projectId, from, to|null} rename or remove a project folder
 // /api/move-files               POST    {ids, subfolder} put files into a folder
 // /api/removed                  POST    {ids} mark cleanup-list entries as handled
@@ -54,7 +63,33 @@ export default async function handler(req, res) {
     }
   }
 
+  if (resource === 'link-app' && method === 'GET') {
+    const zip = await macAppZip(hubOrigin(req))
+    res.setHeader('content-type', 'application/zip')
+    res.setHeader('content-disposition', 'attachment; filename="Print Hub Link Setup.zip"')
+    res.setHeader('cache-control', 'no-store')
+    return res.end(Buffer.from(zip))
+  }
+
   if (!databaseUrl()) return res.status(503).json({ error: 'DATABASE_URL not set' })
+
+  // The Mac link talks plain text
+  if (resource.startsWith('link-') && resource !== 'link-sync') {
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    res.setHeader('cache-control', 'no-store')
+    try {
+      const text = () => (typeof req.body === 'string' ? req.body : readRaw(req, 5 * 1024 * 1024).then((b) => b.toString('utf8')))
+      if (resource === 'link-tasks' && method === 'GET') return res.end(await linkTasks({ status: req.query.status, inbox: req.query.inbox }))
+      if (resource === 'link-done' && method === 'POST') return res.end(await linkDone(await text()))
+      if (resource === 'link-scan' && method === 'POST') return res.end(await linkScan(await text()))
+      if (resource === 'link-ticket' && method === 'POST') return res.end(await linkTicket(req.query.id, hubOrigin(req)))
+      if (resource === 'link-uploaded' && method === 'POST') return res.end(await linkUploaded(req.query.id))
+      return res.status(404).end('Not found\n')
+    } catch (e) {
+      if (!e.status) console.error(e)
+      return res.status(e.status || 500).end((e.status ? e.message : 'Server error') + '\n')
+    }
+  }
 
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) && !Buffer.isBuffer(req.body) ? req.body : {}
 
@@ -84,6 +119,10 @@ export default async function handler(req, res) {
     if (resource === 'move-files' && method === 'POST') return res.json(await moveToFolder(body))
     if (resource === 'delete-files' && method === 'POST') return res.json(await deleteFiles(body.ids, body.macCleanup !== false))
     if (resource === 'removed' && method === 'POST') return res.json(await markRemoved(body.ids))
+    if (resource === 'trash-files' && method === 'POST') return res.json(await trashFiles(body.ids))
+    if (resource === 'restore-files' && method === 'POST') return res.json(await restoreFiles(body.ids))
+    if (resource === 'empty-trash' && method === 'POST') return res.json(await emptyTrash())
+    if (resource === 'link-sync' && method === 'POST') return res.json(await requestScan())
 
     if (resource === 'thumb' && method === 'PUT') return res.json(await saveThumb(body))
 

@@ -164,16 +164,16 @@ function ensureTables() {
   return _ready
 }
 
-async function q(text, params = []) {
+export async function q(text, params = []) {
   await ensureTables()
   return (await db()).query(text, params)
 }
 
 // ---------- cleaning input ----------
 
-const str = (v, max = 500) => String(v ?? '').slice(0, max)
+export const str = (v, max = 500) => String(v ?? '').slice(0, max)
 const int = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null : Math.round(Number(v)))
-const okId = (id) => {
+export const okId = (id) => {
   const s = String(id || '')
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(s)) throw httpError(400, 'Bad id')
   return s
@@ -201,20 +201,28 @@ const fileRow = (r) => ({
   thumbV: r.has_thumb ? Number(r.thumb_v) || 1 : 0,
   sourcePath: r.source_path || null,
   subfolder: r.subfolder || null,
+  inboxPath: r.inbox_path || null,
+  trashedAt: r.trashed_at == null ? null : Number(r.trashed_at),
 })
 
 // ---------- reads ----------
 
 export async function loadAll() {
-  const [files, printers, materials, projects] = await Promise.all([
-    q(`select id, name, ext, size, category, tags, fav, sellable, price, modified, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb
+  await purgeExpired()
+  const [files, printers, materials, projects, meta] = await Promise.all([
+    q(`select id, name, ext, size, category, tags, fav, sellable, price, modified, added, prints, blob_path, project_id, source_path, subfolder, inbox_path, trashed_at, thumb_v, (thumb is not null) as has_thumb
        from ph_files order by added desc, id`),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
     q('select id, name, category, status, notes, keywords, folders from ph_projects order by sort, id'),
+    q("select key, value from ph_meta where key like 'link_%'"),
   ])
+  const m = Object.fromEntries(meta.map((r) => [r.key, r.value]))
+  const all = files.map(fileRow)
   return {
-    files: files.map(fileRow),
+    files: all.filter((f) => !f.trashedAt),
+    trash: all.filter((f) => f.trashedAt).sort((a, b) => b.trashedAt - a.trashedAt),
+    link: m.link_seen ? { seen: Number(m.link_seen), status: m.link_status || 'ok', inbox: m.link_inbox || '', scanPending: m.link_scan === '1' } : null,
     printers,
     materials: materials.map((m) => ({ ...m, nozzle: m.nozzle ?? '', bed: m.bed ?? '', fan: m.fan ?? '' })),
     projects: projects.map((p) => ({ ...p, folders: Array.isArray(p.folders) ? p.folders : JSON.parse(p.folders || '[]') })),
@@ -253,7 +261,7 @@ export async function saveFile(body) {
        category = excluded.category, tags = excluded.tags, fav = excluded.fav, sellable = excluded.sellable, price = excluded.price, modified = coalesce(excluded.modified, ph_files.modified), prints = excluded.prints,
        project_id = excluded.project_id, source_path = coalesce(excluded.source_path, ph_files.source_path),
        subfolder = excluded.subfolder, updated_at = now()
-     returning id, name, ext, size, category, tags, fav, sellable, price, modified, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb`, row)
+     returning id, name, ext, size, category, tags, fav, sellable, price, modified, added, prints, blob_path, project_id, source_path, subfolder, inbox_path, trashed_at, thumb_v, (thumb is not null) as has_thumb`, row)
   return fileRow(saved)
 }
 
@@ -293,16 +301,20 @@ export async function readThumb(id) {
   return { data, type: row.thumb_type || 'image/png' }
 }
 
-// Deleting also adds the file to the Mac cleanup list (ph_removed).
-// macCleanup false (removing duplicates): the copy that's kept has the same
-// name and size, so the Mac cleanup script would find and trash it too.
+// Deleting for good. Files from the Mac inbox: the Mac link moves the Mac's
+// copy to the Mac's Trash. Other files go on the Mac cleanup list (ph_removed),
+// unless macCleanup is false (removing duplicates: the copy that's kept has
+// the same name and size, so the Mac cleanup script would trash it too).
 export async function deleteFiles(ids, macCleanup = true) {
   ids = (Array.isArray(ids) ? ids : [ids]).slice(0, 1000).map(okId)
   if (!ids.length) return { ok: true, deleted: 0 }
-  const rows = await q('delete from ph_files where id = any($1::text[]) returning id, name, ext, size, source_path, blob_path', [ids])
+  const rows = await q('delete from ph_files where id = any($1::text[]) returning id, name, ext, size, source_path, blob_path, inbox_path, trash_path', [ids])
   const now = Date.now()
   for (const r of rows) {
-    if (macCleanup) await q(`insert into ph_removed (id, name, ext, size, source_path, removed_at) values ($1,$2,$3,$4,$5,$6)
+    if (r.inbox_path || r.trash_path) {
+      await q('delete from ph_link_tasks where file_id = $1 and not done', [r.id])
+      await q("insert into ph_link_tasks (file_id, action, from_path, created_at) values ($1, 'purge', $2, $3)", [r.id, r.trash_path || r.inbox_path, now])
+    } else if (macCleanup) await q(`insert into ph_removed (id, name, ext, size, source_path, removed_at) values ($1,$2,$3,$4,$5,$6)
              on conflict (id) do update set removed_at = excluded.removed_at, cleaned = false`,
       [r.id, r.name, r.ext, r.size, r.source_path, now])
     if (r.blob_path) await removeStored(r.blob_path)
@@ -310,6 +322,49 @@ export async function deleteFiles(ids, macCleanup = true) {
   return { ok: true, deleted: rows.length }
 }
 export const deleteFile = (id) => deleteFiles([id])
+
+// ---------- trash ----------
+
+export const TRASH_DAYS = 30
+
+// Into the hub's Trash. A file from the Mac inbox also moves into the
+// inbox's _trash folder on the Mac (done by the Mac link).
+export async function trashFiles(ids) {
+  ids = (Array.isArray(ids) ? ids : []).slice(0, 1000).map(okId)
+  if (!ids.length) return { ok: true }
+  const now = Date.now()
+  const rows = await q('update ph_files set trashed_at = $2, updated_at = now() where id = any($1::text[]) and trashed_at is null returning id, inbox_path', [ids, now])
+  for (const r of rows.filter((x) => x.inbox_path)) {
+    await q("insert into ph_link_tasks (file_id, action, from_path, to_path, created_at) values ($1, 'trash', $2, $3, $4)",
+      [r.id, r.inbox_path, '_trash/' + r.inbox_path, now])
+  }
+  return { ok: true, trashed: rows.length }
+}
+
+export async function restoreFiles(ids) {
+  ids = (Array.isArray(ids) ? ids : []).slice(0, 1000).map(okId)
+  if (!ids.length) return { ok: true }
+  const now = Date.now()
+  const rows = await q('update ph_files set trashed_at = null, updated_at = now() where id = any($1::text[]) and trashed_at is not null returning id, inbox_path, trash_path', [ids])
+  for (const r of rows) {
+    const cancelled = await q("delete from ph_link_tasks where file_id = $1 and action = 'trash' and not done returning id", [r.id])
+    if (!cancelled.length && r.trash_path) {
+      await q("insert into ph_link_tasks (file_id, action, from_path, to_path, created_at) values ($1, 'restore', $2, $3, $4)",
+        [r.id, r.trash_path, r.inbox_path || r.trash_path.replace(/^_trash\//, ''), now])
+    }
+  }
+  return { ok: true, restored: rows.length }
+}
+
+export async function emptyTrash() {
+  const rows = await q('select id from ph_files where trashed_at is not null')
+  return deleteFiles(rows.map((r) => r.id))
+}
+
+export async function purgeExpired() {
+  const rows = await q('select id from ph_files where trashed_at is not null and trashed_at < $1', [Date.now() - TRASH_DAYS * 86400000])
+  if (rows.length) await deleteFiles(rows.map((r) => r.id))
+}
 
 export async function listRemoved() {
   const rows = await q('select id, name, ext, size, source_path, removed_at from ph_removed where not cleaned order by removed_at desc')

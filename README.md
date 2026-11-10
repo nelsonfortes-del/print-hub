@@ -63,16 +63,31 @@ to keep a different one. Deleting duplicates does not add them to the Mac
 cleanup list, because the kept copy has the same name and size and the
 cleanup script would trash it too. Code: `src/DuplicatesPage.jsx`.
 
-**Deleting and Mac cleanup:** delete one file from its panel, or use **Select**
-to pick many and delete them together. Deleted files go on the **Mac cleanup**
-list (Settings), with the folder they came from. The page makes a script
-(`src/cleanup.js`) you run in Terminal with `bash`: it finds files in your home
-folder with the exact same name and size, lists them, asks, and moves them to
-the Trash (Put Back still works). Then press **Mark all as done**. The starting
-printers, filament and projects come from Nelson's 3D printing notes and are
-loaded once; after that, everything is edited in the app. Easiest: the Mac cleanup page shows one command to paste in Terminal,
-`bash <(curl -fsSL <site>/api/cleanup-script)`, which runs the same script straight
-from the site (no download).
+**Mac link (iCloud inbox):** a small app on the Mac connects the 3D inbox
+folder in iCloud Drive to the hub. Set it up from **Mac link** (Settings):
+download, open it once (System Settings → Privacy & Security → Open Anyway),
+pick the inbox folder. It builds `~/Applications/Print Hub Link.app`, which
+macOS starts every minute (`~/Library/LaunchAgents/app.printhub.link.plist`).
+Each run it:
+1. does the hub's jobs: a file deleted in the hub moves into the inbox's
+   `_trash` folder, a restored one moves back, an emptied one goes to the
+   Mac's Trash;
+2. sends the inbox listing; new STL, 3MF and OBJ files are added (auto-sorted
+   like dropped files) and uploaded straight to Blob storage. Everything else
+   (PDFs, photos…) is ignored. Same name and size as a file already in the
+   library = duplicate, skipped.
+
+**Sync now** on the Mac link page makes the Mac look again on its next check
+(within a minute). It only works while the Mac is on and awake. The Mac side
+is plain bash (`mac/link.sh`, set up by `mac/setup.sh`); it talks to
+`/api/link-*` in tab-separated text. Server code: `api/_lib/link.js`.
+
+**Trash:** deleting a file (its panel, or Select mode) moves it to **Trash**
+(Settings). Restore it from there, delete it for good, or **Empty trash**.
+Files left 30 days are deleted for good automatically. Files that came from
+the Mac inbox follow along on the Mac (see above). Deleting for good a file
+that didn't come from the inbox puts it on the old **Mac cleanup** list
+(shown only when it has something), with its Terminal script (`src/cleanup.js`).
 
 ## Where things are stored
 
@@ -113,4 +128,7 @@ Without a Blob token, files are saved in `db/.local-files/` instead.
 | `src/store.js` | Talks to the server and uploads files |
 | `api/[resource].js` | The server routes (`/api/state`, `/api/files`, …) |
 | `api/_lib/printhub.js` | Database and file-storage code |
+| `api/_lib/link.js` | The Mac link: inbox sync, trash jobs, the setup download |
+| `mac/` | The Mac side of the link (setup app + sync script) |
+| `src/TrashAndLink.jsx` | Trash and Mac link pages |
 | `dev-server.js` | Runs the server routes locally for `npm run dev` |

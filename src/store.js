@@ -72,6 +72,11 @@ export async function fetchStoredFile(id) {
 // ---------- deleting + Mac cleanup list ----------
 
 export const deleteFiles = (ids, macCleanup = true) => call('delete-files', json('POST', { ids, macCleanup }))
+export const trashFiles = (ids) => call('trash-files', json('POST', { ids }))
+export const restoreFiles = (ids) => call('restore-files', json('POST', { ids }))
+export const emptyTrash = () => call('empty-trash', json('POST', {}))
+export const syncNow = () => call('link-sync', json('POST', {}))
+export const linkAppUrl = '/api/link-app'
 export const markRemoved = (ids) => call('removed', json('POST', { ids }))
 
 // Sends a problem report to the server log (never blocks or throws)
