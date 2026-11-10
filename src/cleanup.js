@@ -18,16 +18,19 @@ export function cleanupScript(removed) {
 
 found=()
 missing=0
+# iCloud Drive lives inside ~/Library, which the home-folder search skips
+roots=()
+[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ] && roots+=("$HOME/Library/Mobile Documents/com~apple~CloudDocs")
 
 check() {
   local name="$1" size="$2" hit=0
   while IFS= read -r -d '' f; do
     if [ "$(stat -f%z "$f" 2>/dev/null)" = "$size" ]; then found+=("$f"); hit=1; fi
-  done < <(find "$HOME" \\( -path "$HOME/Library" -o -path "$HOME/.Trash" -o -name '.*' \\) -prune -o -type f -name "$name" -print0 2>/dev/null)
+  done < <(find "$HOME" "\${roots[@]}" \\( -path "$HOME/Library" -o -path "$HOME/.Trash" -o -name '.*' \\) -prune -o -type f -name "$(printf '%s' "$name" | sed 's/[][*?\\\\]/\\\\&/g')" -print0 2>/dev/null)
   [ $hit = 0 ] && missing=$((missing + 1))
 }
 
-echo "Print Hub cleanup: looking for ${removed.length} file(s) in your home folder…"
+echo "Print Hub cleanup: looking for ${removed.length} file(s) in your home folder and iCloud Drive…"
 echo "(macOS may ask to let Terminal see Desktop, Documents or Downloads — say OK.)"
 echo
 ${checks}
