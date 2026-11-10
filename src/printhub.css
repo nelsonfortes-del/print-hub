@@ -43,7 +43,7 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
   -webkit-font-smoothing: antialiased;
 }
 .ph * { box-sizing: border-box; }
-.ph ::placeholder { color: var(--faint); opacity: 1; }
+.ph ::placeholder { color: var(--muted); opacity: 1; }
 .ph h1 { margin: 0; }
 .ph input, .ph select, .ph button { font-family: inherit; }
 .ph button { cursor: pointer; }
@@ -206,7 +206,7 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
 .ph-btn-sm:hover { border-color: var(--accent); }
 .ph-btn-link { display: inline-flex; align-items: center; text-decoration: none; }
 .ph-banner {
-  border: 1px solid var(--border); border-left: 3px solid var(--danger); background: var(--surface); border-radius: 8px;
+  border: 1px solid rgba(255, 131, 112, 0.45); background: rgba(255, 131, 112, 0.08); border-radius: 8px;
   padding: 10px 14px; font-size: 15px; color: var(--ink-2); margin-bottom: 20px;
 }
 .ph-btn-sm.ph-danger { color: var(--danger); }
@@ -266,7 +266,7 @@ select.ph-input { padding: 0 8px; }
 .ph-project-notes {
   font-size: 15px; color: var(--ink-2); line-height: 1.5; max-width: 760px; margin: -8px 0 20px; white-space: pre-wrap;
 }
-.ph-banner-warn { border-left-color: var(--warn); }
+.ph-banner-warn { border-color: rgba(240, 180, 76, 0.5); background: rgba(240, 180, 76, 0.08); }
 .ph-proj-section { margin-bottom: 32px; }
 .ph-proj-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .ph-h2 { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
