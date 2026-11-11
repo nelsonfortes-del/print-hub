@@ -421,7 +421,7 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-drawer { overflow-x: hidden; }
 
 /* Sets */
-.ph-set-card { box-shadow: 4px 4px 0 -1px var(--surface), 4px 4px 0 0 var(--border); }
+.ph-set-card { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .ph-set-card.is-dim { opacity: 0.45; cursor: default; }
 .ph-set-tag, .ph-piece-tag {
   position: absolute; top: 6px; left: 6px; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
