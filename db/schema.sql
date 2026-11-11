@@ -111,3 +111,18 @@ alter table ph_files add column if not exists title text not null default '';
 alter table ph_files add column if not exists notes text not null default '';
 alter table ph_sets add column if not exists tags jsonb not null default '[]';
 alter table ph_sets add column if not exists notes text not null default '';
+
+-- Filament inventory: one row per spool. Cost per gram = cost / spool_grams,
+-- which the Shop's cost calculator will use.
+create table if not exists ph_spools (
+  id text primary key,
+  brand text not null default '',
+  material text not null default 'PLA',
+  color_name text not null default '',
+  color_hex text not null default '#cccccc',
+  grams_left integer not null default 1000,
+  spool_grams integer not null default 1000,
+  cost numeric(8,2),
+  notes text not null default '',
+  sort double precision not null default 0
+);
