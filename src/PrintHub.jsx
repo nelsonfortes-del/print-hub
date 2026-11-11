@@ -37,6 +37,14 @@ const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short
 const fileDate = (f) => f.modified || f.added
 // The hub's display title, or the file name when there's none
 const shownName = (f) => f.title || f.name
+// Splits "FLINT SORT CADDY - piece 2 - side strip" at its first separator
+// (" - ", "_" or " (") after at least 6 characters: ['FLINT SORT CADDY', 'piece 2 - side strip'].
+// Names without one come back as [null, name].
+const splitName = (name) => {
+  const m = /^(.{6,}?)(\s+[-\u2013\u2014]\s+|_|\s+(?=\())(.+)$/.exec(name)
+  return m ? [m[1].trim(), m[3].trim()] : [null, name]
+}
+const NOT_SET_KEY = 'printhub-not-a-set'
 const SORTS = { newest: 'Newest first', oldest: 'Oldest first', name: 'Name A–Z', added: 'Recently added' }
 const SORT_KEY = 'printhub-sort'
 // Status of a print file. Guessed from the name when it's added.
@@ -545,6 +553,38 @@ export default function PrintHub() {
       (!ql || [st.name, st.notes].some((v) => (v || '').toLowerCase().includes(ql)) || st.pieces.some((f) => shownName(f).toLowerCase().includes(ql))))
   }, [sets, files, curSet, showPieces, activeFolder, cat, project, tag, ql]) // eslint-disable-line react-hooks/exhaustive-deps
   const items = [...setCards, ...shown].sort(fileSort)
+  // Cards whose names start the same way: lead with the part that differs
+  const prefixCount = useMemo(() => {
+    const c = new Map()
+    for (const f of shown) { if (f.title) continue; const [pre] = splitName(f.name); if (pre) c.set(pre.toLowerCase(), (c.get(pre.toLowerCase()) || 0) + 1) }
+    return c
+  }, [shown])
+  const cardName = (f) => {
+    if (f.title) return { main: f.title, sub: null }
+    const [pre, rest] = splitName(f.name)
+    return pre && prefixCount.get(pre.toLowerCase()) > 1 ? { main: rest, sub: pre } : { main: f.name, sub: null }
+  }
+  // 3+ loose files sharing a name start probably belong in one set
+  const [notSets, setNotSets] = useState(() => { try { return JSON.parse(localStorage.getItem(NOT_SET_KEY) || '[]') } catch { return [] } })
+  const setSuggestion = useMemo(() => {
+    if (curSet || selecting) return null
+    const groups = new Map()
+    for (const f of shown) {
+      if (f.setId) continue
+      const [pre] = splitName(f.name)
+      if (!pre) continue
+      const k = pre.toLowerCase()
+      if (notSets.includes(k)) continue
+      if (!groups.has(k)) groups.set(k, { prefix: pre, ids: [] })
+      groups.get(k).ids.push(f.id)
+    }
+    return [...groups.values()].filter((g) => g.ids.length >= 3).sort((a, b) => b.ids.length - a.ids.length)[0] || null
+  }, [shown, notSets, curSet, selecting])
+  const dismissSuggestion = (prefix) => {
+    const next = [...notSets, prefix.toLowerCase()]
+    setNotSets(next)
+    try { localStorage.setItem(NOT_SET_KEY, JSON.stringify(next)) } catch { /* private mode */ }
+  }
   const allTags = useMemo(() => [...new Set([...files.flatMap((f) => f.tags), ...sets.flatMap((x) => x.tags || [])])].sort(), [files, sets])
 
   const navCount = (label) =>
@@ -760,6 +800,13 @@ export default function PrintHub() {
                   )}
                 </div>
               )}
+              {setSuggestion && (
+                <div className="ph-suggest" role="status">
+                  <span><strong>{setSuggestion.ids.length} files</strong> start with “{setSuggestion.prefix}”. They look like one print.</span>
+                  <button className="ph-btn-sm" onClick={() => makeSet(setSuggestion.ids)}>Make a set of {setSuggestion.ids.length}</button>
+                  <button className="ph-btn-link-sm" onClick={() => dismissSuggestion(setSuggestion.prefix)}>Not a set</button>
+                </div>
+              )}
               {cat === 'Unsorted' && !activeProject && shown.length > 0 && (
                 <div className="ph-project-notes">These files didn't match any project's keywords. Open one to pick a project, or add keywords on the Projects page.</div>
               )}
@@ -791,7 +838,12 @@ export default function PrintHub() {
                           {inSet && <span className="ph-piece-tag" title={`Piece of ${inSet.name}`}>▣ {inSet.name}</span>}
                         </div>
                         <div className="ph-card-body">
-                          <div className="ph-card-name" title={f.title ? `${f.name}.${f.ext}` : undefined}>{shownName(f)}</div>
+                          {(() => { const n = cardName(f); return (
+                            <div className="ph-card-name" title={`${f.name}.${f.ext}`}>
+                              {n.main}
+                              {n.sub && <span className="ph-card-prefix">{n.sub}</span>}
+                            </div>
+                          ) })()}
                           <div className="ph-card-date ph-mono">{fmtDate(sort === 'added' ? f.added : fileDate(f))}</div>
                           <div className="ph-card-meta">
                             <span className="ph-ellipsis">{activeProject ? (f.subfolder || 'Not in a folder') : (projectName(f.projectId) || f.category)}</span>
