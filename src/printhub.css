@@ -136,7 +136,10 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
 }
 .ph-card-body { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 4px; }
 .ph-card-date { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.ph-card-name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-card-name { font-size: 15px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+.ph-card-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+/* the shared start of a name (e.g. "FLINT SORT CADDY"), shown under the part that differs */
+.ph-card-prefix { display: block; font-size: 13px; font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ph-card-meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .ph-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ph-status { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
@@ -418,7 +421,7 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-drawer { overflow-x: hidden; }
 
 /* Sets */
-.ph-set-card { box-shadow: 4px 4px 0 -1px var(--surface), 4px 4px 0 0 var(--border); }
+.ph-set-card { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .ph-set-card.is-dim { opacity: 0.45; cursor: default; }
 .ph-set-tag, .ph-piece-tag {
   position: absolute; top: 6px; left: 6px; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
@@ -560,3 +563,8 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-gone-name small { display: block; font-weight: 400; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .ph-gone-where { font-size: 13px; color: var(--muted); white-space: nowrap; }
 @media (max-width: 720px) { .ph-gone-row { grid-template-columns: 24px 44px minmax(0, 1fr); } .ph-gone-where { display: none; } }
+
+/* Set suggestion above the grid */
+.ph-suggest { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -4px 0 16px; padding: 10px 14px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 15px; color: var(--ink-2); }
+.ph-suggest strong { color: var(--ink); font-weight: 600; }

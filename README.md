@@ -17,6 +17,12 @@ one tap after a good print; Final files get a green badge and their own
 **Final** entry in the sidebar. Select mode has **Set status…** for many files.
 Stored as `ph_files.stage`.
 
+**Long names:** card names wrap to two lines. When several cards start the same way
+("FLINT SORT CADDY - piece 2 - side strip"), each card leads with the part that
+differs and shows the shared start underneath. When 3 or more loose files share a
+name start, a line above the grid offers **Make a set of N** (or **Not a set**,
+remembered in the browser).
+
 **Sets** (multi-piece prints): in Select mode, pick 2+ files and press **Make
 set**; it's named from what the pieces' names share, and you can rename it. A
 set shows as one card in the list (its pieces don't show on their own unless
