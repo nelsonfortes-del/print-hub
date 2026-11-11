@@ -3,7 +3,6 @@ import './printhub.css'
 import { matchProject, normalize } from './autosort'
 import { grabDropped, fromPicker, expand } from './collect'
 import { makeThumb, canThumb } from './thumbs'
-import { cleanupScript, downloadText } from './cleanup'
 import DuplicatesPage from './DuplicatesPage'
 import FilamentPage from './FilamentPage'
 import GoneFromMac from './GoneFromMac'
@@ -855,7 +854,6 @@ export default function PrintHub() {
           {load.state === 'ready' && view === 'cleanup' && (
             <CleanupPage
               removed={removed}
-              onDownload={() => downloadText('print-hub-cleanup.sh', cleanupScript(removed))}
               onDone={(ids) => { setRemoved((r) => r.filter((x) => !ids.includes(x.id))); markRemoved(ids).catch(saveFailed) }}
             />
           )}
@@ -1401,41 +1399,37 @@ function ProjectsPage({ projects, files, onEdit, onRemove, onAdd, onOpen }) {
   )
 }
 
-function CleanupPage({ removed, onDownload, onDone }) {
+function CleanupPage({ removed, onDone }) {
   const [copied, setCopied] = useState(false)
-  // bash <(…) rather than curl | bash, so the script can still ask y/n
-  const runCmd = `bash <(curl -fsSL ${window.location.origin}/api/cleanup-script)`
+  // one command for both directions; bash <(…) rather than curl | bash, so it can still ask y/n
+  const runCmd = `bash <(curl -fsSL ${window.location.origin}/api/sync-script)`
   return (
     <>
       <div className="ph-head-row" style={{ marginBottom: 6 }}>
         <h1 className="ph-h1">Mac cleanup</h1>
       </div>
-      <div className="ph-sub">Files you delete here are listed below so you can remove the originals from your Mac too.</div>
-      {removed.length === 0 ? (
-        <div className="ph-empty">
-          <div className="ph-empty-title">Nothing to clean up</div>
-          <div>When you delete files in Print Hub, they show up here.</div>
-        </div>
-      ) : (
-        <>
-          <ol className="ph-steps">
-            <li>
-              Open <strong>Terminal</strong> on your Mac, paste this, and press Return:
-              <div className="ph-cmd-row">
-                <code className="ph-code ph-cmd">{runCmd}</code>
-                <button className="ph-btn-primary"
-                  onClick={() => navigator.clipboard?.writeText(runCmd).then(() => setCopied(true)).catch(() => {})}>
-                  {copied ? 'Copied' : 'Copy command'}
-                </button>
-              </div>
-              <span className="ph-muted13">It cleans up these {removed.length} file{removed.length === 1 ? '' : 's'}. </span>
-              <button className="ph-btn-link-sm" onClick={onDownload}>Or download the script</button>
-            </li>
-            <li>It shows what it found and asks before moving anything to the Trash (you can still put files back from the Trash).</li>
-            <li>
-              When it's done: <button className="ph-btn-outline" onClick={() => onDone(removed.map((r) => r.id))}>Mark all as done</button>
-            </li>
-          </ol>
+      <div className="ph-sub">Keep the hub and your Mac matching. One command does both directions.</div>
+      <ol className="ph-steps ph-sync-steps">
+        <li>
+          Open <strong>Terminal</strong> on your Mac, paste this, and press Return:
+          <div className="ph-cmd-row">
+            <code className="ph-code ph-cmd">{runCmd}</code>
+            <button className="ph-btn-primary" onClick={() => navigator.clipboard?.writeText(runCmd).then(() => setCopied(true)).catch(() => {})}>
+              {copied ? 'Copied' : 'Copy command'}
+            </button>
+          </div>
+          <span className="ph-muted13">
+            It moves the files you deleted here to your Mac's Trash (it lists them and asks first), then sends the names and sizes of your Mac's 3D files back here.
+          </span>
+        </li>
+        <li>When it says Done: <button className="ph-btn-outline" onClick={() => window.location.reload()}>Show results</button></li>
+      </ol>
+
+      <section className="ph-gone" aria-labelledby="del-h">
+        <h2 className="ph-h2" id="del-h">Deleted here, still on your Mac</h2>
+        {removed.length === 0 ? (
+          <div className="ph-muted13">Nothing waiting. Files you delete in the hub show up here until the command removes them from your Mac.</div>
+        ) : (
           <div className="ph-table">
             <div style={{ minWidth: 600 }}>
               <div className="ph-tr ph-th ph-mono" style={{ gridTemplateColumns: '1.4fr 0.5fr 1.6fr 0.7fr 130px' }}>
@@ -1452,8 +1446,8 @@ function CleanupPage({ removed, onDownload, onDone }) {
               ))}
             </div>
           </div>
-        </>
-      )}
+        )}
+      </section>
     </>
   )
 }
