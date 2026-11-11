@@ -25,6 +25,12 @@ set shows as one card in the list (its pieces don't show on their own unless
 deleted). **Add to set…** in Select mode adds files to an existing set. Stored
 in `ph_sets` and `ph_files.set_id`.
 
+**Titles, notes and tags:** each file can have a **Title** shown in the hub
+instead of its file name (downloads keep the file name) and **Notes**. Sets
+have tags and notes too. Search looks at names, titles and notes; the sidebar
+tag filter includes set tags. Titles and notes are hub-only: the file on your
+Mac isn't renamed.
+
 **Sellable:** a gold shelf in the sidebar for prints that are clean, tested and
 worth selling. Open a file and press **+ Sellable**, then type an asking price;
 the price shows on the file's card. Stored as `ph_files.sellable` and

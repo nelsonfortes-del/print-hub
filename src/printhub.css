@@ -432,3 +432,6 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-setbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ph-setbar-name { max-width: 360px; flex: 1 1 200px; }
 .ph-toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+
+/* Notes boxes */
+.ph-notes { min-height: 72px; resize: vertical; font: inherit; }

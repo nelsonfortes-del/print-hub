@@ -33,6 +33,8 @@ const fmtSize = (b) => (b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Mat
 const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 // A file's own date (last saved on the Mac); older entries fall back to when it was added
 const fileDate = (f) => f.modified || f.added
+// The hub's display title, or the file name when there's none
+const shownName = (f) => f.title || f.name
 const SORTS = { newest: 'Newest first', oldest: 'Oldest first', name: 'Name A–Z', added: 'Recently added' }
 const SORT_KEY = 'printhub-sort'
 // Status of a print file. Guessed from the name when it's added.
@@ -506,7 +508,7 @@ export default function PrintHub() {
 
   const ql = q.trim().toLowerCase()
   const curSet = sets.find((x) => x.id === openSet) || null
-  const fileSort = sort === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })
+  const fileSort = sort === 'name' ? (a, b) => shownName(a).localeCompare(shownName(b), undefined, { numeric: true })
     : sort === 'added' ? (a, b) => b.added - a.added
     : sort === 'oldest' ? (a, b) => fileDate(a) - fileDate(b)
     : (a, b) => fileDate(b) - fileDate(a)
@@ -516,7 +518,7 @@ export default function PrintHub() {
     (!project || f.projectId === project) &&
     (!activeFolder || (activeFolder === LOOSE ? !f.subfolder : f.subfolder === activeFolder)) &&
     (!tag || f.tags.includes(tag)) &&
-    (!ql || f.name.toLowerCase().includes(ql) || f.tags.some((t) => t.includes(ql)))
+    (!ql || [f.name, f.title, f.notes].some((v) => (v || '').toLowerCase().includes(ql)) || f.tags.some((t) => t.includes(ql)))
   )).sort(fileSort), [files, cat, project, activeFolder, tag, ql, sort, curSet, showPieces]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set cards in the main list (one card per set), filtered like files
@@ -524,15 +526,15 @@ export default function PrintHub() {
     if (curSet || showPieces || activeFolder) return []
     return sets.map((st) => {
       const pieces = files.filter((f) => f.setId === st.id)
-      return { ...st, pieces, setCard: true, added: st.added, modified: Math.max(0, ...pieces.map(fileDate)), tags: [...new Set(pieces.flatMap((f) => f.tags))] }
+      return { ...st, pieces, setCard: true, added: st.added, modified: Math.max(0, ...pieces.map(fileDate)), allTags: [...new Set([...(st.tags || []), ...pieces.flatMap((f) => f.tags)])] }
     }).filter((st) => st.pieces.length &&
       (cat === 'All' || (cat === 'Favorites' ? st.fav : cat === 'Sellable' ? st.pieces.some((f) => f.sellable) : cat === 'Final' ? st.stage === 'final' : cat === 'Unsorted' ? !st.projectId : st.category === cat)) &&
       (!project || st.projectId === project) &&
-      (!tag || st.tags.includes(tag)) &&
-      (!ql || st.name.toLowerCase().includes(ql) || st.pieces.some((f) => f.name.toLowerCase().includes(ql))))
+      (!tag || st.allTags.includes(tag)) &&
+      (!ql || [st.name, st.notes].some((v) => (v || '').toLowerCase().includes(ql)) || st.pieces.some((f) => shownName(f).toLowerCase().includes(ql))))
   }, [sets, files, curSet, showPieces, activeFolder, cat, project, tag, ql]) // eslint-disable-line react-hooks/exhaustive-deps
   const items = [...setCards, ...shown].sort(fileSort)
-  const allTags = useMemo(() => [...new Set(files.flatMap((f) => f.tags))].sort(), [files])
+  const allTags = useMemo(() => [...new Set([...files.flatMap((f) => f.tags), ...sets.flatMap((x) => x.tags || [])])].sort(), [files, sets])
 
   const navCount = (label) =>
     label === 'All' ? files.length : label === 'Favorites' ? files.filter((f) => f.fav).length
@@ -758,7 +760,7 @@ export default function PrintHub() {
                           {inSet && <span className="ph-piece-tag" title={`Piece of ${inSet.name}`}>▣ {inSet.name}</span>}
                         </div>
                         <div className="ph-card-body">
-                          <div className="ph-card-name">{f.name}</div>
+                          <div className="ph-card-name" title={f.title ? `${f.name}.${f.ext}` : undefined}>{shownName(f)}</div>
                           <div className="ph-card-date ph-mono">{fmtDate(sort === 'added' ? f.added : fileDate(f))}</div>
                           <div className="ph-card-meta">
                             <span className="ph-ellipsis">{activeProject ? (f.subfolder || 'Not in a folder') : (projectName(f.projectId) || f.category)}</span>
@@ -924,6 +926,7 @@ function SetBar({ set, projects, count, renaming, setRenaming, onBack, onChange,
             <button key={k} className="ph-seg" style={segStyle(set.stage === k)} onClick={() => onChange((x) => ({ ...x, stage: k }))}>{l}</button>
           ))}
         </div>
+        <TagBox tags={set.tags || []} onChange={(tags) => onChange((x) => ({ ...x, tags }))} />
         <select className="ph-proj-select" value={set.projectId || ''} aria-label="Set project"
           onChange={(e) => { const pr = projects.find((p) => p.id === e.target.value); onChange((x) => ({ ...x, projectId: pr?.id || null, category: pr ? pr.category : x.category })) }}>
           <option value="">No project</option>
@@ -934,6 +937,43 @@ function SetBar({ set, projects, count, renaming, setRenaming, onBack, onChange,
           ))}
         </select>
       </div>
+      <BlurField multiline className="ph-input ph-notes" value={set.notes || ''} placeholder="Notes about this set"
+        onSave={(v) => onChange((x) => ({ ...x, notes: v }))} />
+    </div>
+  )
+}
+
+// A text box that saves when you leave it (or press Enter on one line)
+function BlurField({ value, onSave, multiline, ...rest }) {
+  const [v, setV] = useState(value)
+  useEffect(() => { setV(value) }, [value])
+  const done = () => { if (v !== value) onSave(v) }
+  return multiline
+    ? <textarea {...rest} value={v} onChange={(e) => setV(e.target.value)} onBlur={done} />
+    : <input {...rest} value={v} onChange={(e) => setV(e.target.value)} onBlur={done} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+}
+
+// Tag chips with an add box
+function TagBox({ tags, onChange }) {
+  const [input, setInput] = useState('')
+  return (
+    <div className="ph-seg-row" style={{ alignItems: 'center' }}>
+      {tags.map((t) => (
+        <span key={t} className="ph-chip">
+          {t}
+          <button aria-label={`Remove ${t}`} onClick={() => onChange(tags.filter((y) => y !== t))}>×</button>
+        </span>
+      ))}
+      <input
+        className="ph-tag-input" value={input} placeholder="Add tag + Enter" aria-label="Add tag"
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return
+          const t = input.trim().toLowerCase().replace(/^#+/, '')
+          if (t && !tags.includes(t)) onChange([...tags, t])
+          setInput('')
+        }}
+      />
     </div>
   )
 }
@@ -983,7 +1023,6 @@ function ProfileTable({ title, addLabel, sub, minWidth, cols, headers, kind, row
 }
 
 function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryThumb, printers, materials, projects, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
-  const [tagInput, setTagInput] = useState('')
   const [price, setPrice] = useState(file.price ?? '')
   useEffect(() => { setPrice(file.price ?? '') }, [file.id, file.price])
   const savePrice = () => {
@@ -1055,11 +1094,18 @@ function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryTh
           )}
 
           <div className="ph-col4">
-            <div className="ph-drawer-title">{file.name}</div>
+            <div className="ph-drawer-title">{shownName(file)}</div>
+            {file.title && <div className="ph-mono ph-meta">File: {file.name}.{file.ext}</div>}
             <div className="ph-mono ph-meta">
               {file.ext.toUpperCase()} · {fmtSize(file.size)}{file.modified ? ` · file date ${fmtDate(file.modified)}` : ''} · added {fmtDate(file.added)}
             </div>
           </div>
+
+          <label className="ph-lbl">Title
+            <BlurField className="ph-input" value={file.title || ''} placeholder={file.name}
+              onSave={(v) => update((f) => ({ ...f, title: v.trim() }))} />
+            <span className="ph-hint">Shown in the hub instead of the file name. Downloads keep the file name.</span>
+          </label>
 
           <div className="ph-col8">
             <div className="ph-field-label">Status</div>
@@ -1117,25 +1163,13 @@ function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryTh
 
           <div className="ph-col8">
             <div className="ph-field-label">Tags</div>
-            <div className="ph-seg-row" style={{ alignItems: 'center' }}>
-              {file.tags.map((t) => (
-                <span key={t} className="ph-chip">
-                  {t}
-                  <button aria-label={`Remove ${t}`} onClick={() => update((f) => ({ ...f, tags: f.tags.filter((y) => y !== t) }))}>×</button>
-                </span>
-              ))}
-              <input
-                className="ph-tag-input" value={tagInput} placeholder="Add tag + Enter"
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter') return
-                  const t = tagInput.trim().toLowerCase().replace(/^#+/, '')
-                  if (t && !file.tags.includes(t)) update((f) => ({ ...f, tags: [...f.tags, t] }))
-                  setTagInput('')
-                }}
-              />
-            </div>
+            <TagBox tags={file.tags} onChange={(tags) => update((f) => ({ ...f, tags }))} />
           </div>
+
+          <label className="ph-lbl">Notes
+            <BlurField multiline className="ph-input ph-notes" value={file.notes || ''} placeholder="Anything to remember about this file"
+              onSave={(v) => update((f) => ({ ...f, notes: v }))} />
+          </label>
 
           <div className="ph-log">
             <div className="ph-section-title">Log a print</div>
