@@ -90,3 +90,33 @@ export function downloadText(filename, text) {
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
+
+// "Compare with my Mac": lists every 3D file in the home folder and iCloud
+// Drive (name and size only) and sends that list to the hub, which then shows
+// the hub files that are no longer on the Mac. Nothing on the Mac changes.
+export function inventoryScript(site) {
+  return `#!/bin/bash
+# Print Hub — compare with my Mac
+# Sends the names and sizes of the 3D files on this Mac to Print Hub.
+# Nothing on this Mac is changed or uploaded besides that list.
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+roots=("$HOME")
+[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ] && roots+=("$HOME/Library/Mobile Documents/com~apple~CloudDocs")
+
+echo "Print Hub: listing the 3D files on this Mac (home folder and iCloud Drive)…"
+echo "(macOS may ask to let Terminal see Desktop, Documents or Downloads — say OK.)"
+find "\${roots[@]}" \\( -path "$HOME/Library" -o -path "$HOME/.Trash" -o -name '.*' \\) -prune -o -type f \\
+  \\( -iname '*.stl' -o -iname '*.3mf' -o -iname '*.obj' -o -iname '*.step' -o -iname '*.stp' -o -iname '*.gcode' -o -iname '*.gco' \\) \\
+  -print0 2>/dev/null | xargs -0 stat -f '%z%t%N' 2>/dev/null \\
+  | awk -F'\\t' '{ n = $2; sub(/.*\\//, "", n); print n "\\t" $1 }' > "$TMP/list.tsv"
+count=$(grep -c . "$TMP/list.tsv")
+echo "Found $count 3D file(s). Sending the list to Print Hub…"
+if curl -fsS -X POST -H 'Content-Type: application/octet-stream' --data-binary @"$TMP/list.tsv" '${site}/api/mac-inventory' >/dev/null; then
+  echo "Done. Go back to Print Hub: Mac cleanup → Gone from your Mac."
+else
+  echo "Couldn't reach Print Hub. Check your internet and run this again."
+fi
+`
+}

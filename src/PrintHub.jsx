@@ -6,6 +6,7 @@ import { makeThumb, canThumb } from './thumbs'
 import { cleanupScript, downloadText } from './cleanup'
 import DuplicatesPage from './DuplicatesPage'
 import FilamentPage from './FilamentPage'
+import GoneFromMac from './GoneFromMac'
 import { useCardEntrance, useEntrance } from './motion'
 import {
   loadAll, saveFile, saveSet, deleteSet, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved, reportProblem, changeFolder, moveToFolder,
@@ -66,6 +67,7 @@ export default function PrintHub() {
   const [materials, setMaterials] = useState([])
   const [projects, setProjects] = useState([])
   const [removed, setRemoved] = useState([]) // Mac cleanup list
+  const [macCheck, setMacCheck] = useState(null) // last 'Compare with my Mac' result
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
   const [draft, setDraft] = useState(() => ({ printer: '', material: 'PLA', nozzle: 215, bed: 60, supports: 'None', result: 'Success', ...(readDraft() || {}) }))
@@ -109,6 +111,7 @@ export default function PrintHub() {
     setSpools(data.spools || [])
     setProjects(data.projects || [])
     setRemoved(data.removed || [])
+    setMacCheck(data.macCheck || null)
     setDraft((d) => (data.printers.some((p) => p.name === d.printer) ? d : { ...d, printer: data.printers[0]?.name || '' }))
     setLoad({ state: 'ready', error: '' })
   }, [])
@@ -855,6 +858,14 @@ export default function PrintHub() {
               onDownload={() => downloadText('print-hub-cleanup.sh', cleanupScript(removed))}
               onDone={(ids) => { setRemoved((r) => r.filter((x) => !ids.includes(x.id))); markRemoved(ids).catch(saveFailed) }}
             />
+          )}
+          {load.state === 'ready' && view === 'cleanup' && (
+            <GoneFromMac files={files} macCheck={macCheck} projectName={projectName}
+              onDelete={(ids) => {
+                filesRef.current = filesRef.current.filter((f) => !ids.includes(f.id))
+                setFiles(filesRef.current)
+                deleteFiles(ids, false).then(() => showToast(`Deleted ${ids.length} file${ids.length === 1 ? '' : 's'} from the hub`)).catch(saveFailed)
+              }} />
           )}
 
           {load.state === 'ready' && view === 'filament' && (

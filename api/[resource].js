@@ -1,11 +1,11 @@
 /* global Buffer */
 import {
   httpError, readRaw, blobToken, blobOn, databaseUrl,
-  loadAll, listRemoved, saveSet, deleteSet, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload, changeFolder, moveToFolder,
+  loadAll, listRemoved, saveMacInventory, saveSet, deleteSet, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload, changeFolder, moveToFolder,
   savePrinter, saveMaterial, saveProject, saveSpool, deleteProfile,
   saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb,
 } from './_lib/printhub.js'
-import { cleanupScript } from '../src/cleanup.js'
+import { cleanupScript, inventoryScript } from '../src/cleanup.js'
 
 // /api/state                    GET     files + printers + materials + storage mode
 // /api/files                    PUT     save one file's details;  DELETE ?id=
@@ -19,6 +19,8 @@ import { cleanupScript } from '../src/cleanup.js'
 // /api/removed                  POST    {ids} mark cleanup-list entries as handled
 // /api/thumb?id=&v=             GET     preview picture;  PUT {id, type, data(base64)}
 // /api/sets                     PUT     save one set;  DELETE ?id= ungroup it
+// /api/mac-inventory-script     GET     script that sends the Mac's 3D file list (name, size)
+// /api/mac-inventory            POST    raw "name<TAB>size" lines from that script
 // /api/cleanup-script           GET     the Mac cleanup script for the current list (run with bash <(curl …))
 // /api/printers | materials | projects | spools  PUT     save one row;  DELETE ?id=
 export default async function handler(req, res) {
@@ -63,6 +65,17 @@ export default async function handler(req, res) {
     if (resource === 'state' && method === 'GET') return res.json(await loadAll())
 
     // Same script as the download button, so the Mac can run it straight from here
+    if (resource === 'mac-inventory-script' && method === 'GET') {
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || '')
+      if (!/^[A-Za-z0-9.-]+(:\d+)?$/.test(host)) return res.status(400).json({ error: 'Bad host' })
+      res.setHeader('content-type', 'text/plain; charset=utf-8')
+      res.setHeader('cache-control', 'no-store')
+      return res.end(inventoryScript(`${/^(localhost|127\.)/.test(host) ? 'http' : 'https'}://${host}`))
+    }
+    if (resource === 'mac-inventory' && method === 'POST') {
+      return res.json(await saveMacInventory(await readRaw(req, 4 * 1024 * 1024)))
+    }
+
     if (resource === 'cleanup-script' && method === 'GET') {
       res.setHeader('content-type', 'text/plain; charset=utf-8')
       res.setHeader('cache-control', 'no-store')
