@@ -82,6 +82,13 @@ project…**, **Move to folder…** (inside a project), **★ Favorite**, **$ Se
 or **Delete**. Favorite and Sellable turn the mark on for all picked files, or
 off if they all have it already.
 
+**Gone from your Mac** (Mac cleanup page): deleted files on the Mac? Paste one
+Terminal command (`bash <(curl -fsSL <site>/api/mac-inventory-script)`); it sends
+the names and sizes of the Mac's 3D files (home folder and iCloud Drive) to the
+hub, and the hub lists its files with no match. Untick any to keep, then delete
+the rest from the hub; nothing on the Mac changes. The list is kept in
+`ph_meta` (`mac-inventory`) and compared on every load.
+
 **Duplicates** (Settings): **Scan for duplicates** compares every stored file
 that shares a type and size with another, byte for byte, so it finds exact
 copies even under different names. In each group one copy is kept (the one in

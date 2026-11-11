@@ -6,6 +6,7 @@ import handler from './api/[resource].js'
 
 const app = express()
 app.use('/api/local-file', express.raw({ type: () => true, limit: '500mb' }))
+app.use('/api/mac-inventory', express.raw({ type: () => true, limit: '5mb' }))
 app.use(express.json({ limit: '2mb' }))
 app.all('/api/:resource', (req, res) => {
   const proxied = Object.create(req)

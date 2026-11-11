@@ -229,6 +229,7 @@ export async function loadAll() {
     sets: sets.map(setRow),
     spools: spools.map(spoolRow),
     removed: await listRemoved(),
+    macCheck: await macCheck(files.map(fileRow)),
     storage: storageMode(),
     blobAccess: blobAccess(),
     // 'presigned' for stores that sign in with BLOB_STORE_ID (no token)
@@ -526,4 +527,29 @@ export async function deleteSet(id) {
   await q('update ph_files set set_id = null where set_id = $1', [id])
   await q('delete from ph_sets where id = $1', [id])
   return { ok: true }
+}
+
+// ---------- compare with my Mac ----------
+// The Mac sends "name<TAB>size" lines for every 3D file it has. They're kept
+// as one list in ph_meta, and the hub files with no match are "gone from the
+// Mac" (worked out on each load, so files added later are compared too).
+
+const macKey = (name, size) => `${String(name).toLowerCase().replace(/\.stp$/, '.step').replace(/\.gco$/, '.gcode')}|${Number(size) || 0}`
+
+export async function saveMacInventory(buf) {
+  const lines = buf.toString('utf8').split('\n').map((l) => l.split('\t')).filter((p) => p.length === 2 && p[0])
+  const keys = [...new Set(lines.map(([n, s]) => macKey(n, s)))]
+  const value = JSON.stringify({ at: Date.now(), count: lines.length, keys })
+  await q("insert into ph_meta (key, value) values ('mac-inventory', $1) on conflict (key) do update set value = excluded.value", [value])
+  return { ok: true, count: lines.length }
+}
+
+export async function macCheck(files) {
+  const [row] = await q("select value from ph_meta where key = 'mac-inventory'")
+  if (!row) return null
+  let inv
+  try { inv = JSON.parse(row.value) } catch { return null }
+  const have = new Set(inv.keys || [])
+  const gone = files.filter((f) => !have.has(macKey(`${f.name}.${f.ext}`, f.size))).map((f) => f.id)
+  return { at: Number(inv.at), count: Number(inv.count) || 0, gone }
 }
