@@ -456,7 +456,7 @@ span.ph-folder { padding: 0; gap: 0; }
   }
   .ph-fchip .ph-mono { font-size: 13px; color: var(--muted); }
   .ph-fchip.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .ph-fchip.is-on .ph-mono { color: rgba(255, 255, 255, 0.8); }
+  .ph-fchip.is-on .ph-mono { color: #fff; }
   .ph-fchip.is-gold:not(.is-on) { color: var(--gold); }
   .ph-fchip-tag { color: var(--ink-2); }
 
@@ -530,4 +530,17 @@ span.ph-folder { padding: 0; gap: 0; }
 @media (max-width: 720px) {
   .ph-spool { grid-template-columns: 44px minmax(0, 1fr) 36px; gap: 10px; padding: 12px; }
   .ph-swatch { width: 44px; height: 44px; }
+}
+
+/* Tidy up: counts that are work waiting get a soft amber marker */
+.ph-nav-count.is-waiting {
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent);
+  padding: 1px 8px; border-radius: 999px; font-weight: 500;
+}
+.ph-nav-item.is-active .ph-nav-count.is-waiting { color: var(--warn); }
+.ph-sheet-group { display: flex; flex-direction: column; gap: 2px; }
+.ph-sheet-group + .ph-sheet-group { margin-top: 10px; }
+.ph-sheet-group .ph-label { padding: 4px 16px 2px; }
+@media (max-width: 720px) {
+  .ph-fchip.is-waiting:not(.is-on) .ph-mono { color: var(--warn); }
 }

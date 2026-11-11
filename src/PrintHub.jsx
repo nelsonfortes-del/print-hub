@@ -586,27 +586,32 @@ export default function PrintHub() {
 
       <div className="ph-body-row">
         <aside className="ph-side">
-          <nav className="ph-nav">
+          <nav className="ph-nav ph-nav-tidy" aria-label="Tidy up">
+            <div className="ph-label">Tidy up</div>
+            <NavItem label="Unsorted" attention count={navCount('Unsorted')} active={view === 'catalog' && !project && cat === 'Unsorted'}
+              onClick={() => { setCat('Unsorted'); setProject(null); setOpenSet(null); setView('catalog') }} />
+            <NavItem label="Duplicates" count="" active={view === 'duplicates'} onClick={() => setView('duplicates')} />
+            <NavItem label="Mac cleanup" attention count={removed.length} active={view === 'cleanup'} onClick={() => setView('cleanup')} />
+          </nav>
+          <nav className="ph-nav" aria-label="Library">
             <div className="ph-label">Library</div>
-            {['All', 'Favorites', 'Final', 'Sellable', ...CATS, 'Unsorted'].map((label) => (
+            {['All', 'Favorites', 'Final', 'Sellable', ...CATS].map((label) => (
               <NavItem key={label} label={label} gold={label === 'Sellable'} count={navCount(label)} active={view === 'catalog' && !project && cat === label}
                 onClick={() => { setCat(label); setProject(null); setOpenSet(null); setView('catalog') }} />
             ))}
           </nav>
-          <nav className="ph-nav">
+          <nav className="ph-nav" aria-label="Projects">
             <div className="ph-label">Projects</div>
             <NavItem label="All projects" count={projects.length} active={view === 'projects'} onClick={() => setView('projects')} />
             {activeProject && view === 'catalog' && (
               <NavItem label={activeProject.name} count={files.filter((f) => f.projectId === project).length} active onClick={() => {}} />
             )}
           </nav>
-          <nav className="ph-nav">
+          <nav className="ph-nav" aria-label="Settings">
             <div className="ph-label">Settings</div>
             <NavItem label="Printers" count={printers.length} active={view === 'printers'} onClick={() => setView('printers')} />
             <NavItem label="Materials" count={materials.length} active={view === 'materials'} onClick={() => setView('materials')} />
             <NavItem label="Filament" count={spools.length} active={view === 'filament'} onClick={() => setView('filament')} />
-            <NavItem label="Duplicates" count="" active={view === 'duplicates'} onClick={() => setView('duplicates')} />
-            <NavItem label="Mac cleanup" count={removed.length} active={view === 'cleanup'} onClick={() => setView('cleanup')} />
           </nav>
           {view === 'catalog' && allTags.length > 0 && (
             <div className="ph-tags-block">
@@ -625,8 +630,8 @@ export default function PrintHub() {
           {/* Phone: one swipeable row of filters instead of the sidebar */}
           {load.state === 'ready' && view === 'catalog' && !curSet && (
             <div className="ph-phone-filters" role="toolbar" aria-label="Filter files">
-              {['All', 'Favorites', 'Final', 'Sellable', ...CATS, 'Unsorted'].map((label) => (
-                <button key={label} className={'ph-fchip' + (!project && !tag && cat === label ? ' is-on' : '') + (label === 'Sellable' ? ' is-gold' : '')}
+              {['All', 'Unsorted', 'Favorites', 'Final', 'Sellable', ...CATS].map((label) => (
+                <button key={label} className={'ph-fchip' + (!project && !tag && cat === label ? ' is-on' : '') + (label === 'Sellable' ? ' is-gold' : '') + (label === 'Unsorted' && navCount('Unsorted') > 0 ? ' is-waiting' : '')}
                   onClick={() => { setCat(label); setProject(null); setTag(null); setOpenSet(null) }}>
                   {label} <span className="ph-mono">{navCount(label)}</span>
                 </button>
@@ -905,10 +910,16 @@ export default function PrintHub() {
         <>
           <div className="ph-backdrop ph-sheet-backdrop" onClick={() => setMoreOpen(false)} />
           <div className="ph-sheet" role="dialog" aria-label="More" ref={sheetRef}>
-            {[['printers', 'Printers', printers.length], ['materials', 'Materials', materials.length], ['filament', 'Filament', spools.length], ['duplicates', 'Duplicates', ''], ['cleanup', 'Mac cleanup', removed.length]].map(([v, l, n]) => (
-              <button key={v} className={'ph-sheet-item' + (view === v ? ' is-on' : '')} onClick={() => { setView(v); setMoreOpen(false) }}>
-                <span>{l}</span><span className="ph-mono ph-nav-count">{n}</span>
-              </button>
+            {[['Tidy up', [['duplicates', 'Duplicates', ''], ['cleanup', 'Mac cleanup', removed.length]]],
+              ['Settings', [['printers', 'Printers', printers.length], ['materials', 'Materials', materials.length], ['filament', 'Filament', spools.length]]]].map(([group, items]) => (
+              <div key={group} className="ph-sheet-group" role="group" aria-label={group}>
+                <div className="ph-label">{group}</div>
+                {items.map(([v, l, n]) => (
+                  <button key={v} className={'ph-sheet-item' + (view === v ? ' is-on' : '')} onClick={() => { setView(v); setMoreOpen(false) }}>
+                    <span>{l}</span><span className={'ph-mono ph-nav-count' + (v === 'cleanup' && n > 0 ? ' is-waiting' : '')}>{n}</span>
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
         </>
@@ -1036,11 +1047,13 @@ function TagBox({ tags, onChange }) {
   )
 }
 
-function NavItem({ label, count, active, onClick, gold }) {
+// attention: the count is work waiting (Unsorted, Mac cleanup), so it's marked when above 0
+function NavItem({ label, count, active, onClick, gold, attention }) {
+  const waiting = attention && Number(count) > 0
   return (
     <button className={'ph-nav-item' + (active ? ' is-active' : '') + (gold ? ' is-gold' : '')} onClick={onClick}>
       <span>{gold ? '$ ' : ''}{label}</span>
-      <span className="ph-mono ph-nav-count">{count}</span>
+      <span className={'ph-mono ph-nav-count' + (waiting ? ' is-waiting' : '')}>{count}</span>
     </button>
   )
 }
