@@ -21,6 +21,8 @@ export const loadAll = () => call('state').then((d) => {
   return d
 })
 export const saveFile = (file) => call('files', json('PUT', file))
+export const saveSet = (set) => call('sets', json('PUT', set))
+export const deleteSet = (id) => call('sets?id=' + encodeURIComponent(id), { method: 'DELETE' })
 export const deleteFile = (id) => call('files?id=' + encodeURIComponent(id), { method: 'DELETE' })
 export const saveProfile = (kind, row) => call(kind, json('PUT', row))
 export const deleteProfile = (kind, id) => call(`${kind}?id=${encodeURIComponent(id)}`, { method: 'DELETE' })

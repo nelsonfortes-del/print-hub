@@ -91,3 +91,16 @@ alter table ph_files add column if not exists modified bigint;
 -- final (printed well). Guessed once from the name for older files.
 alter table ph_files add column if not exists stage text;
 update ph_files set stage = case when name ~* 'final' then 'final' when name ~* 'clean' then 'cleaned' else 'raw' end where stage is null;
+
+-- Sets: multi-piece prints (e.g. crown top + crown base) shown as one card.
+-- A file belongs to at most one set (ph_files.set_id).
+create table if not exists ph_sets (
+  id text primary key,
+  name text not null default '',
+  fav boolean not null default false,
+  stage text not null default 'raw',
+  project_id text,
+  category text not null default 'Personal',
+  added bigint not null default 0
+);
+alter table ph_files add column if not exists set_id text;
