@@ -5,6 +5,7 @@ import { grabDropped, fromPicker, expand } from './collect'
 import { makeThumb, canThumb } from './thumbs'
 import { cleanupScript, downloadText } from './cleanup'
 import DuplicatesPage from './DuplicatesPage'
+import { useCardEntrance, useEntrance } from './motion'
 import {
   loadAll, saveFile, saveSet, deleteSet, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved, reportProblem, changeFolder, moveToFolder,
 } from './store'
@@ -490,6 +491,10 @@ export default function PrintHub() {
   }
   const [renamingSet, setRenamingSet] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false) // phone: the More sheet
+  // motion (see motion.js): cards when the list changes, the More sheet, toasts
+  const gridRef = useCardEntrance([view, cat, project, tag, openSet, sort, showPieces, q, activeFolder].join('|'))
+  const sheetRef = useEntrance({ y: 24 }, moreOpen)
+  const toastRef = useEntrance({ y: 12 }, toast)
   // Delete one or many; they go on the Mac cleanup list
   const removeFiles = (ids) => {
     const gone = filesRef.current.filter((f) => ids.includes(f.id))
@@ -748,7 +753,7 @@ export default function PrintHub() {
                 <div className="ph-project-notes">These files didn't match any project's keywords. Open one to pick a project, or add keywords on the Projects page.</div>
               )}
               {items.length > 0 ? (
-                <div className="ph-grid">
+                <div className="ph-grid" ref={gridRef}>
                   {items.map((f) => {
                     if (f.setCard) return (
                       <SetCard key={f.id} set={f} dim={selecting} date={fmtDate(sort === 'added' ? f.added : f.modified || f.added)}
@@ -890,7 +895,7 @@ export default function PrintHub() {
       {moreOpen && (
         <>
           <div className="ph-backdrop ph-sheet-backdrop" onClick={() => setMoreOpen(false)} />
-          <div className="ph-sheet" role="dialog" aria-label="More">
+          <div className="ph-sheet" role="dialog" aria-label="More" ref={sheetRef}>
             {[['printers', 'Printers', printers.length], ['materials', 'Materials', materials.length], ['duplicates', 'Duplicates', ''], ['cleanup', 'Mac cleanup', removed.length]].map(([v, l, n]) => (
               <button key={v} className={'ph-sheet-item' + (view === v ? ' is-on' : '')} onClick={() => { setView(v); setMoreOpen(false) }}>
                 <span>{l}</span><span className="ph-mono ph-nav-count">{n}</span>
@@ -899,7 +904,7 @@ export default function PrintHub() {
           </div>
         </>
       )}
-      {toast && <div className="ph-toast">{toast}</div>}
+      {toast && <div className="ph-toast" ref={toastRef}>{toast}</div>}
 
       {selected && (
         <Drawer
@@ -1067,6 +1072,8 @@ function ProfileTable({ title, addLabel, sub, minWidth, cols, headers, kind, row
 }
 
 function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryThumb, printers, materials, projects, draft, setDraft, onClose, onFav, onDelete, update, showToast }) {
+  const backdropRef = useEntrance({}, 'open')
+  const panelRef = useEntrance({ x: 28 }, file.id)
   const [price, setPrice] = useState(file.price ?? '')
   useEffect(() => { setPrice(file.price ?? '') }, [file.id, file.price])
   const savePrice = () => {
@@ -1091,8 +1098,8 @@ function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryTh
 
   return (
     <>
-      <div className="ph-backdrop" onClick={onClose} />
-      <div className="ph-drawer" role="dialog" aria-label={file.name}>
+      <div className="ph-backdrop" onClick={onClose} ref={backdropRef} />
+      <div className="ph-drawer" role="dialog" aria-label={file.name} ref={panelRef}>
         <div className="ph-drawer-bar">
           <button className="ph-btn-sm" onClick={onClose}>Close</button>
           <div style={{ flex: 1 }} />
