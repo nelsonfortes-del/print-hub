@@ -194,8 +194,15 @@ export default function PrintHub() {
     const key = (name, ext, size) => `${name.toLowerCase()}.${ext}|${size}`
     const have = new Set(filesRef.current.map((f) => key(f.name, f.ext, f.size)))
     // a duplicate whose 3D file was never stored gets the file filled in instead
-    const missing = new Map(filesRef.current.filter((f) => !f.hasFile).map((f) => [key(f.name, f.ext, f.size), f]))
+    // (if a file was added twice before storage worked, one copy is filled in
+    // and its empty twins are removed)
+    const missing = new Map()
+    for (const f of filesRef.current.filter((x) => !x.hasFile)) {
+      const k = key(f.name, f.ext, f.size)
+      missing.set(k, [...(missing.get(k) || []), f])
+    }
     const refill = []
+    const twins = []
     const undated = new Map(filesRef.current.filter((f) => f.hasFile && !f.modified).map((f) => [key(f.name, f.ext, f.size), f]))
     const dated = []
     const dates = new Map()
@@ -203,7 +210,8 @@ export default function PrintHub() {
       const parts = file.name.split('.'); const ext = parts.pop().toLowerCase()
       const k = key(parts.join('.'), ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext, file.size)
       if (missing.has(k)) {
-        const old = missing.get(k)
+        const [old, ...extra] = missing.get(k)
+        twins.push(...extra.map((x) => x.id))
         refill.push(old.modified || !file.lastModified ? { entry: old, file } : { entry: { ...old, modified: file.lastModified }, file, save: true })
         missing.delete(k)
         return false
@@ -214,6 +222,11 @@ export default function PrintHub() {
       return true
     })
     const dupes = supported.length - ok.length - refill.length
+    if (twins.length) {
+      filesRef.current = filesRef.current.filter((f) => !twins.includes(f.id))
+      setFiles(filesRef.current)
+      deleteFiles(twins, false).catch(saveFailed)
+    }
     if (dated.length) updateMany(dated, (f) => ({ ...f, modified: dates.get(f.id) }), `Added the file date to ${dated.length} file${dated.length === 1 ? '' : 's'}`)
     if (!ok.length && !refill.length && dated.length) return
     if (!ok.length && refill.length) return uploadAll(refill, `Saving ${refill.length} missing file${refill.length === 1 ? '' : 's'}`, true)
