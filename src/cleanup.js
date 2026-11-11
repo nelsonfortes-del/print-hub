@@ -3,10 +3,9 @@
 // different file that happens to share a name), lists them, asks first, then
 // moves them to the Trash with Finder (so "Put Back" still works).
 
-const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
-
 export function cleanupScript(removed) {
-  const checks = removed.map((r) => `check ${q(`${r.name}.${r.ext}`)} ${Number(r.size) || 0} ${q(r.sourcePath || '')}`).join('\n')
+  // name <TAB> size, one line per deleted file (tabs and newlines can't be in it)
+  const list = removed.map((r) => `${`${r.name}.${r.ext}`.replace(/[\t\r\n]/g, ' ')}\t${Number(r.size) || 0}`).join('\n')
   return `#!/bin/bash
 # Print Hub — Mac cleanup
 # Moves files you deleted in Print Hub to the Trash.
@@ -16,21 +15,42 @@ export function cleanupScript(removed) {
 # How to run: open Terminal, type  bash  and a space, drag this file into the
 # Terminal window, then press Return.
 
-found=()
-missing=0
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+cat > "$TMP/want.tsv" <<'PRINTHUB_LIST'
+${list}
+PRINTHUB_LIST
 
-check() {
-  local name="$1" size="$2" hit=0
-  while IFS= read -r -d '' f; do
-    if [ "$(stat -f%z "$f" 2>/dev/null)" = "$size" ]; then found+=("$f"); hit=1; fi
-  done < <(find "$HOME" \\( -path "$HOME/Library" -o -path "$HOME/.Trash" -o -name '.*' \\) -prune -o -type f -name "$name" -print0 2>/dev/null)
-  [ $hit = 0 ] && missing=$((missing + 1))
-}
+# iCloud Drive lives inside ~/Library, which the home-folder search skips
+roots=("$HOME")
+[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ] && roots+=("$HOME/Library/Mobile Documents/com~apple~CloudDocs")
 
-echo "Print Hub cleanup: looking for ${removed.length} file(s) in your home folder…"
+echo "Print Hub cleanup: looking for ${removed.length} file(s) in your home folder and iCloud Drive."
 echo "(macOS may ask to let Terminal see Desktop, Documents or Downloads — say OK.)"
+echo "Scanning once for 3D files… this can take a minute."
+
+# One pass over every 3D file: size <TAB> path
+find "\${roots[@]}" \\( -path "$HOME/Library" -o -path "$HOME/.Trash" -o -name '.*' \\) -prune -o -type f \\
+  \\( -iname '*.stl' -o -iname '*.3mf' -o -iname '*.obj' -o -iname '*.step' -o -iname '*.stp' -o -iname '*.gcode' -o -iname '*.gco' \\) \\
+  -print0 2>/dev/null | xargs -0 stat -f '%z%t%N' 2>/dev/null > "$TMP/have.tsv"
+echo "Checked $(grep -c . "$TMP/have.tsv") 3D file(s) on this Mac."
 echo
-${checks}
+
+# Same name (any upper/lower case) and same size
+awk -F'\\t' -v missfile="$TMP/missing" '
+  NR == FNR { if ($1 != "") want[tolower($1) "\\t" $2] = 1; next }
+  {
+    path = $0; sub(/^[^\\t]*\\t/, "", path)
+    n = path; sub(/.*\\//, "", n); n = tolower(n)
+    sub(/\\.stp$/, ".step", n); sub(/\\.gco$/, ".gcode", n)
+    k = n "\\t" $1
+    if (k in want) { print path; hit[k] = 1 }
+  }
+  END { m = 0; for (k in want) if (!(k in hit)) m++; print m > missfile }
+' "$TMP/want.tsv" "$TMP/have.tsv" > "$TMP/found.txt"
+found=()
+while IFS= read -r f; do [ -n "$f" ] && found+=("$f"); done < "$TMP/found.txt"
+missing=$(cat "$TMP/missing" 2>/dev/null || echo 0)
 
 if [ \${#found[@]} = 0 ]; then
   echo "Nothing to clean up: none of those files are on this Mac (already gone, or renamed)."

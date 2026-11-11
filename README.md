@@ -10,6 +10,27 @@ material when logging a print fills in its temperatures.
 progress → Works / Done, or Stalled) and notes. If more than one Work project is
 In progress, the Projects page reminds you to finish one first.
 
+**Status:** every file is **Raw**, **Cleaned** or **Final**. New files are
+guessed from the name ("final" in it = Final, "clean" = Cleaned, else Raw);
+older files were guessed once the same way. **Mark Final** in a file's panel is
+one tap after a good print; Final files get a green badge and their own
+**Final** entry in the sidebar. Select mode has **Set status…** for many files.
+Stored as `ph_files.stage`.
+
+**Sets** (multi-piece prints): in Select mode, pick 2+ files and press **Make
+set**; it's named from what the pieces' names share, and you can rename it. A
+set shows as one card in the list (its pieces don't show on their own unless
+**Show set pieces** is on). Open it to rename, star, set its status and project
+(the pieces follow the project), take pieces out, or **Ungroup** (nothing is
+deleted). **Add to set…** in Select mode adds files to an existing set. Stored
+in `ph_sets` and `ph_files.set_id`.
+
+**Titles, notes and tags:** each file can have a **Title** shown in the hub
+instead of its file name (downloads keep the file name) and **Notes**. Sets
+have tags and notes too. Search looks at names, titles and notes; the sidebar
+tag filter includes set tags. Titles and notes are hub-only: the file on your
+Mac isn't renamed.
+
 **Sellable:** a gold shelf in the sidebar for prints that are clean, tested and
 worth selling. Open a file and press **+ Sellable**, then type an asking price;
 the price shows on the file's card. Stored as `ph_files.sellable` and

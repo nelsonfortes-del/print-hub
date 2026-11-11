@@ -115,6 +115,7 @@ export async function linkScan(text) {
     await saveFile({
       id, name, ext, size: f.size, category: place.project?.category || 'Personal', projectId: place.project?.id || null,
       subfolder: place.subfolder, tags: place.tag ? [place.tag] : [], fav: false, prints: [], added: Date.now(),
+      stage: /final/i.test(name) ? 'final' : /clean/i.test(name) ? 'cleaned' : 'raw',
       modified: f.modified, sourcePath: f.path,
     })
     await q('update ph_files set inbox_path = $2 where id = $1', [id, f.path])

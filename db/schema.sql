@@ -87,6 +87,31 @@ alter table ph_files add column if not exists price numeric(8,2);
 -- The file's own date from the computer it came from (last saved), ms since 1970
 alter table ph_files add column if not exists modified bigint;
 
+-- Status of a print file: raw (as downloaded / made), cleaned (fixed up),
+-- final (printed well). Guessed once from the name for older files.
+alter table ph_files add column if not exists stage text;
+update ph_files set stage = case when name ~* 'final' then 'final' when name ~* 'clean' then 'cleaned' else 'raw' end where stage is null;
+
+-- Sets: multi-piece prints (e.g. crown top + crown base) shown as one card.
+-- A file belongs to at most one set (ph_files.set_id).
+create table if not exists ph_sets (
+  id text primary key,
+  name text not null default '',
+  fav boolean not null default false,
+  stage text not null default 'raw',
+  project_id text,
+  category text not null default 'Personal',
+  added bigint not null default 0
+);
+alter table ph_files add column if not exists set_id text;
+
+-- Hub-only extras: a display title over the file name, and notes. Sets get
+-- tags and notes too.
+alter table ph_files add column if not exists title text not null default '';
+alter table ph_files add column if not exists notes text not null default '';
+alter table ph_sets add column if not exists tags jsonb not null default '[]';
+alter table ph_sets add column if not exists notes text not null default '';
+
 -- Mac link: files that came from the Mac's 3D inbox folder (path inside it)
 alter table ph_files add column if not exists inbox_path text;
 -- Trash: deleted files stay here 30 days (null = not in the trash)
