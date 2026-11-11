@@ -185,15 +185,12 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
 }
 
 /* Drawer */
-.ph-backdrop { position: fixed; inset: 0; background: var(--backdrop); z-index: 20; animation: ph-fade 200ms ease-out; }
+.ph-backdrop { position: fixed; inset: 0; background: var(--backdrop); z-index: 20; }
 .ph-drawer {
   position: fixed; top: 0; right: 0; bottom: 0; width: min(500px, 100vw); background: var(--surface);
   border-left: 1px solid var(--border); z-index: 21; overflow-y: auto; display: flex; flex-direction: column;
-  animation: ph-slide 200ms ease-out;
 }
-@keyframes ph-slide { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes ph-fade { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .ph-drawer, .ph-backdrop { animation: none; } }
+/* Motion for the panel, sheet, toast and cards is in motion.js (GSAP) */
 
 .ph-drawer-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 20px; border-bottom: 1px solid var(--divider);
@@ -481,7 +478,6 @@ span.ph-folder { padding: 0; gap: 0; }
     display: flex; flex-direction: column; gap: 4px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 17;
     background: var(--surface); border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
     padding: 12px max(12px, env(safe-area-inset-right)) calc(84px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-    animation: ph-sheet-up 180ms ease-out;
   }
   .ph-sheet-item {
     display: flex; justify-content: space-between; align-items: center; min-height: 52px; padding: 0 16px;
@@ -501,8 +497,6 @@ span.ph-folder { padding: 0; gap: 0; }
   .ph-toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
   .ph-drawer { padding-bottom: env(safe-area-inset-bottom); }
 }
-@keyframes ph-sheet-up { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .ph-sheet { animation: none; } }
 
 /* Touch screens: every control at least 44px */
 @media (pointer: coarse) {
