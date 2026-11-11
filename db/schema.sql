@@ -86,3 +86,8 @@ alter table ph_files add column if not exists price numeric(8,2);
 
 -- The file's own date from the computer it came from (last saved), ms since 1970
 alter table ph_files add column if not exists modified bigint;
+
+-- Status of a print file: raw (as downloaded / made), cleaned (fixed up),
+-- final (printed well). Guessed once from the name for older files.
+alter table ph_files add column if not exists stage text;
+update ph_files set stage = case when name ~* 'final' then 'final' when name ~* 'clean' then 'cleaned' else 'raw' end where stage is null;

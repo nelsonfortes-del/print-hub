@@ -35,6 +35,9 @@ const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short
 const fileDate = (f) => f.modified || f.added
 const SORTS = { newest: 'Newest first', oldest: 'Oldest first', name: 'Name A–Z', added: 'Recently added' }
 const SORT_KEY = 'printhub-sort'
+// Status of a print file. Guessed from the name when it's added.
+const STAGES = [['raw', 'Raw'], ['cleaned', 'Cleaned'], ['final', 'Final']]
+const guessStage = (name) => (/final/i.test(name) ? 'final' : /clean/i.test(name) ? 'cleaned' : 'raw')
 const fmtPrice = (n) => '$' + (Number.isInteger(n) ? n : n.toFixed(2))
 const segStyle = (active, kind) => {
   if (!active) return undefined
@@ -235,6 +238,7 @@ export default function PrintHub() {
           ext: ext === 'stp' ? 'step' : ext === 'gco' ? 'gcode' : ext,
           size: f.size, category: pr ? pr.category : fallbackCat, projectId: pr?.id || null, subfolder: pr ? sub : null, tags: folderTag ? [folderTag] : [], fav: false, prints: [], added: Date.now(), hasFile: false,
           modified: f.lastModified || null,
+          stage: guessStage(parts.join('.')),
           sourcePath: folder ? `${folder}/${f.name}` : f.name,
         },
         file: f,
@@ -437,7 +441,7 @@ export default function PrintHub() {
 
   const ql = q.trim().toLowerCase()
   const shown = useMemo(() => files.filter((f) =>
-    (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Sellable' ? f.sellable : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
+    (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Sellable' ? f.sellable : cat === 'Final' ? f.stage === 'final' : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
     (!project || f.projectId === project) &&
     (!activeFolder || (activeFolder === LOOSE ? !f.subfolder : f.subfolder === activeFolder)) &&
     (!tag || f.tags.includes(tag)) &&
@@ -451,6 +455,7 @@ export default function PrintHub() {
   const navCount = (label) =>
     label === 'All' ? files.length : label === 'Favorites' ? files.filter((f) => f.fav).length
       : label === 'Sellable' ? files.filter((f) => f.sellable).length
+      : label === 'Final' ? files.filter((f) => f.stage === 'final').length
       : label === 'Unsorted' ? files.filter((f) => !f.projectId).length : files.filter((f) => f.category === label).length
   const catTitle = activeProject ? activeProject.name : cat === 'All' ? 'All files' : cat
   const projectFiles = activeProject ? files.filter((f) => f.projectId === activeProject.id) : []
@@ -490,7 +495,7 @@ export default function PrintHub() {
         <aside className="ph-side">
           <nav className="ph-nav">
             <div className="ph-label">Library</div>
-            {['All', 'Favorites', 'Sellable', ...CATS, 'Unsorted'].map((label) => (
+            {['All', 'Favorites', 'Final', 'Sellable', ...CATS, 'Unsorted'].map((label) => (
               <NavItem key={label} label={label} gold={label === 'Sellable'} count={navCount(label)} active={view === 'catalog' && !project && cat === label}
                 onClick={() => { setCat(label); setProject(null); setView('catalog') }} />
             ))}
@@ -581,6 +586,11 @@ export default function PrintHub() {
                       <option value="__new">New folder…</option>
                     </select>
                   )}
+                  <select className="ph-proj-select" value="" disabled={!picked.size} aria-label="Set status"
+                    onChange={(e) => { const v = e.target.value; if (v) updateMany([...picked], (f) => ({ ...f, stage: v }), `Marked ${picked.size} as ${STAGES.find(([k]) => k === v)[1]}`) }}>
+                    <option value="">Set status…</option>
+                    {STAGES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
                   <button className="ph-btn-sm" disabled={!picked.size} onClick={() => flagMany([...picked], 'fav', 'Favorite')}>★ Favorite</button>
                   <button className="ph-btn-sm ph-btn-gold-outline" disabled={!picked.size} onClick={() => flagMany([...picked], 'sellable', 'Sellable')}>$ Sellable</button>
                   <div style={{ flex: 1 }} />
@@ -635,6 +645,7 @@ export default function PrintHub() {
                             aria-label={f.fav ? 'Remove favorite' : 'Add favorite'}
                             onClick={(e) => { e.stopPropagation(); toggleFav(f.id) }}>{f.fav ? '★' : '☆'}</button>
                           {f.sellable && <span className="ph-sell-tag">{f.price ? fmtPrice(f.price) : 'Sellable'}</span>}
+                          {f.stage === 'final' && <span className="ph-final-tag">✓ Final</span>}
                         </div>
                         <div className="ph-card-body">
                           <div className="ph-card-name">{f.name}</div>
@@ -836,6 +847,10 @@ function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryTh
           <button className="ph-btn-sm" style={{ color: file.fav ? BLUE : 'var(--ink)' }} onClick={onFav}>
             {file.fav ? '★ Fav' : '☆ Fav'}
           </button>
+          <button className={'ph-btn-sm' + (file.stage === 'final' ? ' ph-btn-final' : '')}
+            onClick={() => { const fin = file.stage !== 'final'; update((f) => ({ ...f, stage: fin ? 'final' : guessStage(f.name) === 'final' ? 'cleaned' : guessStage(f.name) })); showToast(fin ? 'Marked Final' : 'No longer Final') }}>
+            {file.stage === 'final' ? '✓ Final' : 'Mark Final'}
+          </button>
           <button className={'ph-btn-sm' + (file.sellable ? ' ph-btn-gold' : '')}
             onClick={() => { update((f) => ({ ...f, sellable: !f.sellable })); showToast(file.sellable ? 'Taken off Sellable' : 'Added to Sellable') }}>
             {file.sellable ? '$ Sellable' : '+ Sellable'}
@@ -872,6 +887,16 @@ function Drawer({ onNewFolder, file, uploadPct, thumbError, thumbBusy, onRetryTh
             <div className="ph-drawer-title">{file.name}</div>
             <div className="ph-mono ph-meta">
               {file.ext.toUpperCase()} · {fmtSize(file.size)}{file.modified ? ` · file date ${fmtDate(file.modified)}` : ''} · added {fmtDate(file.added)}
+            </div>
+          </div>
+
+          <div className="ph-col8">
+            <div className="ph-field-label">Status</div>
+            <div className="ph-seg-row">
+              {STAGES.map(([k, l]) => (
+                <button key={k} className="ph-seg" style={segStyle((file.stage || 'raw') === k)}
+                  onClick={() => update((f) => ({ ...f, stage: k }))}>{l}</button>
+              ))}
             </div>
           </div>
 

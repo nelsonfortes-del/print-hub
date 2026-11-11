@@ -62,6 +62,7 @@ export async function readRaw(req, limit) {
 }
 
 export const CATS = ['Work', 'Personal']
+export const STAGES = ['raw', 'cleaned', 'final']
 export const STATUSES = ['Idea', 'In design', 'Ready to print', 'In progress', 'Works', 'Done', 'Stalled']
 const EXTS = ['stl', '3mf', 'obj', 'step', 'gcode']
 const SUPPORTS = ['None', 'Buildplate only', 'Everywhere']
@@ -194,7 +195,7 @@ function cleanPrint(p) {
 const fileRow = (r) => ({
   id: r.id, name: r.name, ext: r.ext, size: Number(r.size), category: r.category,
   tags: Array.isArray(r.tags) ? r.tags : JSON.parse(r.tags || '[]'),
-  fav: r.fav, modified: r.modified == null ? null : Number(r.modified), sellable: !!r.sellable, price: r.price == null ? null : Number(r.price), added: Number(r.added),
+  fav: r.fav, modified: r.modified == null ? null : Number(r.modified), sellable: !!r.sellable, stage: STAGES.includes(r.stage) ? r.stage : 'raw', price: r.price == null ? null : Number(r.price), added: Number(r.added),
   prints: Array.isArray(r.prints) ? r.prints : JSON.parse(r.prints || '[]'),
   hasFile: !!r.blob_path,
   projectId: r.project_id || null,
@@ -207,7 +208,7 @@ const fileRow = (r) => ({
 
 export async function loadAll() {
   const [files, printers, materials, projects] = await Promise.all([
-    q(`select id, name, ext, size, category, tags, fav, sellable, price, modified, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb
+    q(`select id, name, ext, size, category, tags, fav, sellable, price, modified, stage, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb
        from ph_files order by added desc, id`),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
@@ -244,16 +245,17 @@ export async function saveFile(body) {
     !!body.sellable,
     Number(body.price) > 0 ? Math.min(99999, Math.round(Number(body.price) * 100) / 100) : null,
     Number(body.modified) > 0 ? Math.round(Number(body.modified)) : null,
+    STAGES.includes(body.stage) ? body.stage : 'raw',
   ]
   // blob_path is only ever set by attachFile, never from the browser.
   const [saved] = await q(
-    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id, source_path, subfolder, sellable, price, modified)
-     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15)
+    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id, source_path, subfolder, sellable, price, modified, stage)
+     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16)
      on conflict (id) do update set name = excluded.name, ext = excluded.ext, size = excluded.size,
-       category = excluded.category, tags = excluded.tags, fav = excluded.fav, sellable = excluded.sellable, price = excluded.price, modified = coalesce(excluded.modified, ph_files.modified), prints = excluded.prints,
+       category = excluded.category, tags = excluded.tags, fav = excluded.fav, sellable = excluded.sellable, price = excluded.price, stage = excluded.stage, modified = coalesce(excluded.modified, ph_files.modified), prints = excluded.prints,
        project_id = excluded.project_id, source_path = coalesce(excluded.source_path, ph_files.source_path),
        subfolder = excluded.subfolder, updated_at = now()
-     returning id, name, ext, size, category, tags, fav, sellable, price, modified, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb`, row)
+     returning id, name, ext, size, category, tags, fav, sellable, price, modified, stage, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb`, row)
   return fileRow(saved)
 }
 
