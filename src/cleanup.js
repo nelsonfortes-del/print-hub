@@ -120,3 +120,95 @@ else
 fi
 `
 }
+
+// "Sync with my Mac": one command for both directions, scanning the Mac once.
+// 1. Hub -> Mac: files deleted in the hub (same name AND size) are listed,
+//    and after a y they go to the Trash with Finder; then the hub's cleanup
+//    list is cleared by itself.
+// 2. Mac -> hub: the names and sizes of the Mac's 3D files are sent, so the
+//    hub can show files that were deleted on the Mac (Gone from your Mac).
+export function syncScript(removed, site) {
+  const list = removed.map((r) => `${`${r.name}.${r.ext}`.replace(/[\t\r\n]/g, ' ')}\t${Number(r.size) || 0}`).join('\n')
+  const done = JSON.stringify({ ids: removed.map((r) => r.id) })
+  return `#!/bin/bash
+# Print Hub — sync with my Mac
+# 1. Moves files you deleted in Print Hub to the Trash (asks first).
+# 2. Sends the names and sizes of this Mac's 3D files to Print Hub.
+# Nothing else on this Mac is changed or uploaded.
+
+SITE='${site}'
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+cat > "$TMP/want.tsv" <<'PRINTHUB_LIST'
+${list}
+PRINTHUB_LIST
+roots=("$HOME")
+[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ] && roots+=("$HOME/Library/Mobile Documents/com~apple~CloudDocs")
+
+echo "Print Hub: scanning this Mac's 3D files (home folder and iCloud Drive)…"
+echo "(macOS may ask to let Terminal see Desktop, Documents or Downloads — say OK.)"
+find "\${roots[@]}" \\( -path "$HOME/Library" -o -path "$HOME/.Trash" -o -name '.*' \\) -prune -o -type f \\
+  \\( -iname '*.stl' -o -iname '*.3mf' -o -iname '*.obj' -o -iname '*.step' -o -iname '*.stp' -o -iname '*.gcode' -o -iname '*.gco' \\) \\
+  -print0 2>/dev/null | xargs -0 stat -f '%z%t%N' 2>/dev/null > "$TMP/have.tsv"
+echo "Found $(grep -c . "$TMP/have.tsv") 3D file(s)."
+echo
+
+# ---- 1. Files deleted in the hub ----
+: > "$TMP/trashed.txt"
+if [ ${removed.length} -gt 0 ]; then
+  awk -F'\\t' '
+    NR == FNR { if ($1 != "") want[tolower($1) "\\t" $2] = 1; next }
+    {
+      path = $0; sub(/^[^\\t]*\\t/, "", path)
+      n = path; sub(/.*\\//, "", n); n = tolower(n)
+      sub(/\\.stp$/, ".step", n); sub(/\\.gco$/, ".gcode", n)
+      if ((n "\\t" $1) in want) print path
+    }
+  ' "$TMP/want.tsv" "$TMP/have.tsv" > "$TMP/found.txt"
+  found=()
+  while IFS= read -r f; do [ -n "$f" ] && found+=("$f"); done < "$TMP/found.txt"
+  clear_list=0
+  if [ \${#found[@]} = 0 ]; then
+    echo "1. Deleted in the hub: none of those ${removed.length} file(s) are on this Mac anymore."
+    clear_list=1
+  else
+    echo "1. Deleted in the hub, still on this Mac (\${#found[@]}):"
+    for f in "\${found[@]}"; do echo "  \${f/#"$HOME"/\\~}"; done
+    echo
+    read -r -p "Move these to the Trash? (y/n) " answer < /dev/tty
+    if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+      moved=0
+      for f in "\${found[@]}"; do
+        if osascript -e 'on run {p}' -e 'tell application "Finder" to delete (POSIX file p as alias)' -e 'end run' "$f" >/dev/null 2>&1; then
+          moved=$((moved + 1)); printf '%s\\n' "$f" >> "$TMP/trashed.txt"
+        else
+          echo "  Couldn't move: \${f/#"$HOME"/\\~}"
+        fi
+      done
+      echo "   Moved $moved file(s) to the Trash (Put Back still works)."
+      clear_list=1
+    else
+      echo "   Nothing moved. They stay on the hub's Mac cleanup list."
+    fi
+  fi
+  if [ $clear_list = 1 ]; then
+    curl -fsS -X POST -H 'Content-Type: application/json' --data '${done}' "$SITE/api/removed" >/dev/null \\
+      && echo "   Cleared the hub's Mac cleanup list." || echo "   Couldn't clear the hub's list. Press Keep on Mac / refresh later."
+  fi
+else
+  echo "1. Deleted in the hub: nothing waiting."
+fi
+echo
+
+# ---- 2. Tell the hub what's on this Mac ----
+awk -F'\\t' 'FILENAME == ARGV[1] { gone[$0] = 1; next } { p = $0; sub(/^[^\\t]*\\t/, "", p); if (p in gone) next; n = p; sub(/.*\\//, "", n); print n "\\t" $1 }' \\
+  "$TMP/trashed.txt" "$TMP/have.tsv" > "$TMP/list.tsv"
+if curl -fsS -X POST -H 'Content-Type: application/octet-stream' --data-binary @"$TMP/list.tsv" "$SITE/api/mac-inventory" >/dev/null; then
+  echo "2. Sent this Mac's file list to Print Hub."
+  echo
+  echo "Done. Back in Print Hub, press Show results."
+else
+  echo "2. Couldn't reach Print Hub. Check your internet and run this again."
+fi
+`
+}

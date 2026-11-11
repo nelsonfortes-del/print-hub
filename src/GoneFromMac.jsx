@@ -8,9 +8,7 @@ import { thumbUrl } from './store'
 const fmtDate = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
 export default function GoneFromMac({ files, macCheck, projectName, onDelete }) {
-  const [copied, setCopied] = useState(false)
   const [skip, setSkip] = useState(() => new Set()) // files to keep
-  const cmd = `bash <(curl -fsSL ${window.location.origin}/api/mac-inventory-script)`
   const gone = useMemo(() => {
     const ids = new Set(macCheck?.gone || [])
     return files.filter((f) => ids.has(f.id)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
@@ -29,22 +27,9 @@ export default function GoneFromMac({ files, macCheck, projectName, onDelete }) 
   return (
     <section className="ph-gone" aria-labelledby="gone-h">
       <h2 className="ph-h2" id="gone-h">Gone from your Mac</h2>
-      <div className="ph-sub">Deleted files on your Mac? Find them here and delete them from the hub too.</div>
-      <ol className="ph-steps">
-        <li>
-          Open <strong>Terminal</strong>, paste this, and press Return. It sends the names and sizes of your Mac's 3D files, nothing else.
-          <div className="ph-cmd-row">
-            <code className="ph-code ph-cmd">{cmd}</code>
-            <button className="ph-btn-primary" onClick={() => navigator.clipboard?.writeText(cmd).then(() => setCopied(true)).catch(() => {})}>
-              {copied ? 'Copied' : 'Copy command'}
-            </button>
-          </div>
-        </li>
-        <li>When it says Done: <button className="ph-btn-outline" onClick={() => window.location.reload()}>Show results</button></li>
-      </ol>
-
+      <div className="ph-sub">Hub files the command didn't find on your Mac. Delete them here too, or untick any to keep.</div>
       {!macCheck ? (
-        <div className="ph-muted13">Not checked yet.</div>
+        <div className="ph-muted13">Not checked yet. Run the command above, then press Show results.</div>
       ) : (
         <>
           <div className="ph-gone-summary">
