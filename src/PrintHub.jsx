@@ -6,7 +6,7 @@ import { makeThumb, canThumb } from './thumbs'
 import { cleanupScript, downloadText } from './cleanup'
 import DuplicatesPage from './DuplicatesPage'
 import {
-  loadAll, saveFile, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved, reportProblem, changeFolder, moveToFolder,
+  loadAll, saveFile, saveSet, deleteSet, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved, reportProblem, changeFolder, moveToFolder,
 } from './store'
 
 // Print Hub: a catalog of 3D-print files with a print log per file, plus
@@ -68,6 +68,9 @@ export default function PrintHub() {
 
   const [view, setView] = useState('catalog')
   const [cat, setCat] = useState('All')
+  const [sets, setSets] = useState([]) // multi-piece prints
+  const [openSet, setOpenSet] = useState(null) // id of the set being viewed
+  const [showPieces, setShowPieces] = useState(false) // list set pieces as single files too
   const [tag, setTag] = useState(null)
   const [project, setProject] = useState(null) // project id filter
   const [folder, setFolder] = useState(null) // folder inside the project: null = all, LOOSE = no folder
@@ -95,6 +98,7 @@ export default function PrintHub() {
   const apply = useCallback((data) => {
     setStorage(data.storage)
     setFiles(data.files)
+    setSets(data.sets || [])
     setPrinters(data.printers)
     setMaterials(data.materials)
     setProjects(data.projects || [])
@@ -371,7 +375,7 @@ export default function PrintHub() {
       if (project === id) setProject(null)
     }
   }
-  const openProject = (id) => { setProject(id); setFolder(null); setEditFolders(false); setCat('All'); setTag(null); setView('catalog') }
+  const openProject = (id) => { setOpenSet(null); setProject(id); setFolder(null); setEditFolders(false); setCat('All'); setTag(null); setView('catalog') }
 
   // ----- folders inside a project -----
   const setProjectFolders = (pid, folders) => {
@@ -435,6 +439,54 @@ export default function PrintHub() {
     updateMany(ids, (f) => ({ ...f, [key]: on }), `${on ? 'Marked' : 'Unmarked'} ${ids.length} as ${label}`)
   }
   const projectName = (id) => projects.find((p) => p.id === id)?.name
+
+  // ---- sets ----
+  const updateSet = (id, fn) => {
+    const cur = sets.find((x) => x.id === id)
+    if (!cur) return
+    const next = fn(cur)
+    setSets((ss) => ss.map((x) => (x.id === id ? next : x)))
+    saveSet(next).catch(saveFailed)
+    // the pieces follow the set's project
+    if (next.projectId !== cur.projectId || next.category !== cur.category) {
+      const ids = filesRef.current.filter((f) => f.setId === id).map((f) => f.id)
+      if (ids.length) updateMany(ids, (f) => ({ ...f, projectId: next.projectId, category: next.category, subfolder: null }), 'Moved the set')
+    }
+  }
+  // name: the start the pieces' names share ("FLINT SORT CADDY - piece 1…" -> "FLINT SORT CADDY")
+  const setNameFor = (list) => {
+    let pre = list[0]?.name || ''
+    for (const f of list) while (pre && !f.name.toLowerCase().startsWith(pre.toLowerCase())) pre = pre.slice(0, -1)
+    pre = pre.replace(/[\s\-_.(]+$/, '').trim()
+    return pre.length >= 3 ? pre : 'New set'
+  }
+  const makeSet = async (ids) => {
+    const list = filesRef.current.filter((f) => ids.includes(f.id))
+    if (list.length < 2) return showToast('Pick at least 2 files to make a set')
+    const first = list[0]
+    const set = { id: uid('s'), name: setNameFor(list), fav: false, stage: list.every((f) => f.stage === 'final') ? 'final' : 'raw',
+      projectId: first.projectId, category: first.category, added: Date.now() }
+    try { setSets((ss) => [set, ...ss.filter((x) => x.id !== set.id)]); await saveSet(set) } catch (e) { return saveFailed(e) }
+    await updateMany(ids, (f) => ({ ...f, setId: set.id, projectId: set.projectId, category: set.category }), `Made a set of ${list.length}`)
+    setSelecting(false)
+    setOpenSet(set.id)
+    setRenamingSet(true)
+  }
+  const addToSet = (ids, setId) => {
+    const set = sets.find((x) => x.id === setId)
+    if (set) updateMany(ids, (f) => ({ ...f, setId, projectId: set.projectId, category: set.category }), `Added ${ids.length} to ${set.name}`)
+  }
+  const removeFromSet = (ids) => updateMany(ids, (f) => ({ ...f, setId: null }), `Took ${ids.length} out of the set`)
+  const ungroup = (id) => {
+    const set = sets.find((x) => x.id === id)
+    if (!set || !window.confirm(`Ungroup "${set.name}"? Its pieces become single files again. Nothing is deleted.`)) return
+    filesRef.current = filesRef.current.map((f) => (f.setId === id ? { ...f, setId: null } : f))
+    setFiles(filesRef.current)
+    setSets((ss) => ss.filter((x) => x.id !== id))
+    setOpenSet(null)
+    deleteSet(id).then(() => showToast(`Ungrouped ${set.name}`)).catch(saveFailed)
+  }
+  const [renamingSet, setRenamingSet] = useState(false)
   // Delete one or many; they go on the Mac cleanup list
   const removeFiles = (ids) => {
     const gone = filesRef.current.filter((f) => ids.includes(f.id))
@@ -453,16 +505,33 @@ export default function PrintHub() {
   const toggleFav = (id) => updateFile(id, (f) => ({ ...f, fav: !f.fav }))
 
   const ql = q.trim().toLowerCase()
-  const shown = useMemo(() => files.filter((f) =>
+  const curSet = sets.find((x) => x.id === openSet) || null
+  const fileSort = sort === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })
+    : sort === 'added' ? (a, b) => b.added - a.added
+    : sort === 'oldest' ? (a, b) => fileDate(a) - fileDate(b)
+    : (a, b) => fileDate(b) - fileDate(a)
+  const shown = useMemo(() => (curSet ? files.filter((f) => f.setId === curSet.id) : files.filter((f) =>
+    (showPieces || !f.setId) &&
     (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Sellable' ? f.sellable : cat === 'Final' ? f.stage === 'final' : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
     (!project || f.projectId === project) &&
     (!activeFolder || (activeFolder === LOOSE ? !f.subfolder : f.subfolder === activeFolder)) &&
     (!tag || f.tags.includes(tag)) &&
     (!ql || f.name.toLowerCase().includes(ql) || f.tags.some((t) => t.includes(ql)))
-  ).sort(sort === 'name' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })
-    : sort === 'added' ? (a, b) => b.added - a.added
-    : sort === 'oldest' ? (a, b) => fileDate(a) - fileDate(b)
-    : (a, b) => fileDate(b) - fileDate(a)), [files, cat, project, activeFolder, tag, ql, sort])
+  )).sort(fileSort), [files, cat, project, activeFolder, tag, ql, sort, curSet, showPieces]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Set cards in the main list (one card per set), filtered like files
+  const setCards = useMemo(() => {
+    if (curSet || showPieces || activeFolder) return []
+    return sets.map((st) => {
+      const pieces = files.filter((f) => f.setId === st.id)
+      return { ...st, pieces, setCard: true, added: st.added, modified: Math.max(0, ...pieces.map(fileDate)), tags: [...new Set(pieces.flatMap((f) => f.tags))] }
+    }).filter((st) => st.pieces.length &&
+      (cat === 'All' || (cat === 'Favorites' ? st.fav : cat === 'Sellable' ? st.pieces.some((f) => f.sellable) : cat === 'Final' ? st.stage === 'final' : cat === 'Unsorted' ? !st.projectId : st.category === cat)) &&
+      (!project || st.projectId === project) &&
+      (!tag || st.tags.includes(tag)) &&
+      (!ql || st.name.toLowerCase().includes(ql) || st.pieces.some((f) => f.name.toLowerCase().includes(ql))))
+  }, [sets, files, curSet, showPieces, activeFolder, cat, project, tag, ql]) // eslint-disable-line react-hooks/exhaustive-deps
+  const items = [...setCards, ...shown].sort(fileSort)
   const allTags = useMemo(() => [...new Set(files.flatMap((f) => f.tags))].sort(), [files])
 
   const navCount = (label) =>
@@ -472,7 +541,7 @@ export default function PrintHub() {
       : label === 'Unsorted' ? files.filter((f) => !f.projectId).length : files.filter((f) => f.category === label).length
   const catTitle = activeProject ? activeProject.name : cat === 'All' ? 'All files' : cat
   const projectFiles = activeProject ? files.filter((f) => f.projectId === activeProject.id) : []
-  const heading = tag ? `${catTitle} · #${tag}` : catTitle
+  const heading = curSet ? curSet.name : tag ? `${catTitle} · #${tag}` : catTitle
   const selected = files.find((f) => f.id === sel)
 
   return (
@@ -510,7 +579,7 @@ export default function PrintHub() {
             <div className="ph-label">Library</div>
             {['All', 'Favorites', 'Final', 'Sellable', ...CATS, 'Unsorted'].map((label) => (
               <NavItem key={label} label={label} gold={label === 'Sellable'} count={navCount(label)} active={view === 'catalog' && !project && cat === label}
-                onClick={() => { setCat(label); setProject(null); setView('catalog') }} />
+                onClick={() => { setCat(label); setProject(null); setOpenSet(null); setView('catalog') }} />
             ))}
           </nav>
           <nav className="ph-nav">
@@ -565,6 +634,9 @@ export default function PrintHub() {
                   )}
                 </div>
                 <div className="ph-head-actions">
+                  {!curSet && sets.length > 0 && (
+                    <label className="ph-toggle"><input type="checkbox" checked={showPieces} onChange={(e) => setShowPieces(e.target.checked)} /> Show set pieces</label>
+                  )}
                   <select className="ph-proj-select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort files">
                     {Object.entries(SORTS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                   </select>
@@ -572,6 +644,11 @@ export default function PrintHub() {
                   {shown.length > 0 && !selecting && <button className="ph-btn-sm" onClick={() => setSelecting(true)}>Select</button>}
                 </div>
               </div>
+              {curSet && (
+                <SetBar set={curSet} projects={projects} count={shown.length} renaming={renamingSet} setRenaming={setRenamingSet}
+                  onBack={() => { setOpenSet(null); setSelecting(false); setPicked(new Set()) }}
+                  onChange={(fn) => updateSet(curSet.id, fn)} onUngroup={() => ungroup(curSet.id)} />
+              )}
               {selecting && (
                 <div className="ph-select-bar">
                   <strong>{picked.size} selected</strong>
@@ -604,6 +681,18 @@ export default function PrintHub() {
                     <option value="">Set status…</option>
                     {STAGES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                   </select>
+                  {curSet
+                    ? <button className="ph-btn-sm" disabled={!picked.size} onClick={() => removeFromSet([...picked])}>Take out of set</button>
+                    : <>
+                      <button className="ph-btn-sm" disabled={picked.size < 2} onClick={() => makeSet([...picked])}>Make set</button>
+                      {sets.length > 0 && (
+                        <select className="ph-proj-select" value="" disabled={!picked.size} aria-label="Add to set"
+                          onChange={(e) => { if (e.target.value) { addToSet([...picked], e.target.value); setPicked(new Set()) } }}>
+                          <option value="">Add to set…</option>
+                          {sets.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                        </select>
+                      )}
+                    </>}
                   <button className="ph-btn-sm" disabled={!picked.size} onClick={() => flagMany([...picked], 'fav', 'Favorite')}>★ Favorite</button>
                   <button className="ph-btn-sm ph-btn-gold-outline" disabled={!picked.size} onClick={() => flagMany([...picked], 'sellable', 'Sellable')}>$ Sellable</button>
                   <div style={{ flex: 1 }} />
@@ -641,10 +730,17 @@ export default function PrintHub() {
               {cat === 'Unsorted' && !activeProject && shown.length > 0 && (
                 <div className="ph-project-notes">These files didn't match any project's keywords. Open one to pick a project, or add keywords on the Projects page.</div>
               )}
-              {shown.length > 0 ? (
+              {items.length > 0 ? (
                 <div className="ph-grid">
-                  {shown.map((f) => {
+                  {items.map((f) => {
+                    if (f.setCard) return (
+                      <SetCard key={f.id} set={f} dim={selecting} date={fmtDate(sort === 'added' ? f.added : f.modified || f.added)}
+                        where={projectName(f.projectId) || f.category}
+                        onOpen={() => { if (!selecting) { setOpenSet(f.id); setRenamingSet(false) } }}
+                        onFav={() => updateSet(f.id, (x) => ({ ...x, fav: !x.fav }))} />
+                    )
                     const st = status(f)
+                    const inSet = showPieces && f.setId ? sets.find((x) => x.id === f.setId) : null
                     return (
                       <div key={f.id} className={'ph-card' + (selecting && picked.has(f.id) ? ' is-picked' : '')} role="button" tabIndex={0}
                         onClick={() => (selecting ? togglePick(f.id) : setSel(f.id))}
@@ -659,6 +755,7 @@ export default function PrintHub() {
                             onClick={(e) => { e.stopPropagation(); toggleFav(f.id) }}>{f.fav ? '★' : '☆'}</button>
                           {f.sellable && <span className="ph-sell-tag">{f.price ? fmtPrice(f.price) : 'Sellable'}</span>}
                           {f.stage === 'final' && <span className="ph-final-tag">✓ Final</span>}
+                          {inSet && <span className="ph-piece-tag" title={`Piece of ${inSet.name}`}>▣ {inSet.name}</span>}
                         </div>
                         <div className="ph-card-body">
                           <div className="ph-card-name">{f.name}</div>
@@ -676,7 +773,7 @@ export default function PrintHub() {
                 </div>
               ) : (
                 <div className="ph-empty">
-                  <div className="ph-empty-title">{ql || tag ? 'Nothing matches' : 'No files here yet'}</div>
+                  <div className="ph-empty-title">{curSet ? 'This set is empty' : ql || tag ? 'Nothing matches' : 'No files here yet'}</div>
                   <div>Drag files here or use Add files.</div>
                 </div>
               )}
@@ -776,6 +873,67 @@ export default function PrintHub() {
           onNewFolder={addFolder}
         />
       )}
+    </div>
+  )
+}
+
+// One card for a whole set: first piece's picture, piece count
+function SetCard({ set, dim, date, where, onOpen, onFav }) {
+  const cover = set.pieces.find((f) => f.thumbV) || set.pieces[0]
+  return (
+    <div className={'ph-card ph-set-card' + (dim ? ' is-dim' : '')} role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => e.key === 'Enter' && onOpen()}>
+      <div className={'ph-thumb' + (cover?.thumbV ? ' has-img' : '')}>
+        {cover?.thumbV ? <img className="ph-thumb-img" src={thumbUrl(cover.id, cover.thumbV)} alt="" loading="lazy" /> : <span className="ph-badge">SET</span>}
+        <span className="ph-set-tag">▣ {set.pieces.length} pieces</span>
+        <button className="ph-fav" style={{ color: set.fav ? BLUE : 'var(--muted)' }} aria-label={set.fav ? 'Remove favorite' : 'Add favorite'}
+          onClick={(e) => { e.stopPropagation(); onFav() }}>{set.fav ? '★' : '☆'}</button>
+        {set.stage === 'final' && <span className="ph-final-tag">✓ Final</span>}
+      </div>
+      <div className="ph-card-body">
+        <div className="ph-card-name">{set.name}</div>
+        <div className="ph-card-date ph-mono">{date}</div>
+        <div className="ph-card-meta"><span className="ph-ellipsis">{where}</span><span className="ph-status">Set</span></div>
+      </div>
+    </div>
+  )
+}
+
+// Top of a set's own page: name, star, status, project, ungroup
+function SetBar({ set, projects, count, renaming, setRenaming, onBack, onChange, onUngroup }) {
+  const [name, setName] = useState(set.name)
+  useEffect(() => { setName(set.name) }, [set.id, set.name])
+  const saveName = () => { const n = name.trim(); if (n && n !== set.name) onChange((x) => ({ ...x, name: n })); setRenaming(false) }
+  return (
+    <div className="ph-setbar">
+      <div className="ph-setbar-row">
+        <button className="ph-btn-sm" onClick={onBack}>← Back</button>
+        {renaming ? (
+          <input className="ph-input ph-setbar-name" autoFocus value={name} aria-label="Set name"
+            onChange={(e) => setName(e.target.value)} onBlur={saveName} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+        ) : (
+          <button className="ph-btn-link-sm" onClick={() => setRenaming(true)}>Rename</button>
+        )}
+        <span className="ph-muted13">{count} piece{count === 1 ? '' : 's'}</span>
+        <div style={{ flex: 1 }} />
+        <button className="ph-btn-sm" style={{ color: set.fav ? BLUE : 'var(--ink)' }} onClick={() => onChange((x) => ({ ...x, fav: !x.fav }))}>{set.fav ? '★ Fav' : '☆ Fav'}</button>
+        <button className="ph-btn-sm ph-danger" onClick={onUngroup}>Ungroup</button>
+      </div>
+      <div className="ph-setbar-row">
+        <div className="ph-seg-row">
+          {STAGES.map(([k, l]) => (
+            <button key={k} className="ph-seg" style={segStyle(set.stage === k)} onClick={() => onChange((x) => ({ ...x, stage: k }))}>{l}</button>
+          ))}
+        </div>
+        <select className="ph-proj-select" value={set.projectId || ''} aria-label="Set project"
+          onChange={(e) => { const pr = projects.find((p) => p.id === e.target.value); onChange((x) => ({ ...x, projectId: pr?.id || null, category: pr ? pr.category : x.category })) }}>
+          <option value="">No project</option>
+          {CATS.map((c) => (
+            <optgroup key={c} label={c}>
+              {projects.filter((p) => p.category === c).map((p) => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </div>
     </div>
   )
 }

@@ -419,3 +419,16 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-thumb.has-img .ph-final-tag { left: auto; right: 6px; top: auto; bottom: 6px; }
 .ph-btn-sm.ph-btn-final { color: var(--bg); background: var(--success); border-color: var(--success); }
 .ph-drawer { overflow-x: hidden; }
+
+/* Sets */
+.ph-set-card { box-shadow: 4px 4px 0 -1px var(--surface), 4px 4px 0 0 var(--border); }
+.ph-set-card.is-dim { opacity: 0.45; cursor: default; }
+.ph-set-tag, .ph-piece-tag {
+  position: absolute; top: 6px; left: 6px; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+  background: var(--accent); color: #fff; max-width: calc(100% - 50px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ph-piece-tag { top: auto; bottom: 6px; left: auto; right: 6px; background: var(--surface-2); color: var(--ink-2); font-weight: 500; }
+.ph-setbar { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; margin: -6px 0 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.ph-setbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ph-setbar-name { max-width: 360px; flex: 1 1 200px; }
+.ph-toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }

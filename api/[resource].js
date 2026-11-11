@@ -1,7 +1,7 @@
 /* global Buffer */
 import {
   httpError, readRaw, blobToken, blobOn, databaseUrl,
-  loadAll, listRemoved, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload, changeFolder, moveToFolder,
+  loadAll, listRemoved, saveSet, deleteSet, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload, changeFolder, moveToFolder,
   savePrinter, saveMaterial, saveProject, deleteProfile,
   saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb,
 } from './_lib/printhub.js'
@@ -18,6 +18,7 @@ import { cleanupScript } from '../src/cleanup.js'
 // /api/move-files               POST    {ids, subfolder} put files into a folder
 // /api/removed                  POST    {ids} mark cleanup-list entries as handled
 // /api/thumb?id=&v=             GET     preview picture;  PUT {id, type, data(base64)}
+// /api/sets                     PUT     save one set;  DELETE ?id= ungroup it
 // /api/cleanup-script           GET     the Mac cleanup script for the current list (run with bash <(curl …))
 // /api/printers | materials | projects  PUT     save one row;  DELETE ?id=
 export default async function handler(req, res) {
@@ -66,6 +67,11 @@ export default async function handler(req, res) {
       res.setHeader('content-type', 'text/plain; charset=utf-8')
       res.setHeader('cache-control', 'no-store')
       return res.end(cleanupScript(await listRemoved()))
+    }
+
+    if (resource === 'sets') {
+      if (method === 'PUT') return res.json(await saveSet(body))
+      if (method === 'DELETE') return res.json(await deleteSet(req.query.id))
     }
 
     if (resource === 'files') {
