@@ -104,3 +104,10 @@ create table if not exists ph_sets (
   added bigint not null default 0
 );
 alter table ph_files add column if not exists set_id text;
+
+-- Hub-only extras: a display title over the file name, and notes. Sets get
+-- tags and notes too.
+alter table ph_files add column if not exists title text not null default '';
+alter table ph_files add column if not exists notes text not null default '';
+alter table ph_sets add column if not exists tags jsonb not null default '[]';
+alter table ph_sets add column if not exists notes text not null default '';

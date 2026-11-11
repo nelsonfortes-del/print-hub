@@ -203,6 +203,8 @@ const fileRow = (r) => ({
   sourcePath: r.source_path || null,
   subfolder: r.subfolder || null,
   setId: r.set_id || null,
+  title: r.title || '',
+  notes: r.notes || '',
 })
 
 // ---------- reads ----------
@@ -211,12 +213,12 @@ export async function loadAll() {
   // a set with no pieces left is gone
   await q('delete from ph_sets s where not exists (select 1 from ph_files f where f.set_id = s.id)')
   const [files, printers, materials, projects, sets] = await Promise.all([
-    q(`select id, name, ext, size, category, tags, fav, sellable, price, modified, stage, set_id, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb
+    q(`select id, name, ext, size, category, tags, fav, sellable, price, modified, stage, set_id, title, notes, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb
        from ph_files order by added desc, id`),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
     q('select id, name, category, status, notes, keywords, folders from ph_projects order by sort, id'),
-    q('select id, name, fav, stage, project_id, category, added from ph_sets order by added desc, id'),
+    q('select id, name, fav, stage, project_id, category, added, tags, notes from ph_sets order by added desc, id'),
   ])
   return {
     files: files.map(fileRow),
@@ -252,16 +254,18 @@ export async function saveFile(body) {
     Number(body.modified) > 0 ? Math.round(Number(body.modified)) : null,
     STAGES.includes(body.stage) ? body.stage : 'raw',
     body.setId ? okId(body.setId) : null,
+    str(body.title, 200).trim(),
+    str(body.notes, 4000),
   ]
   // blob_path is only ever set by attachFile, never from the browser.
   const [saved] = await q(
-    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id, source_path, subfolder, sellable, price, modified, stage, set_id)
-     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17)
+    `insert into ph_files (id, name, ext, size, category, tags, fav, added, prints, project_id, source_path, subfolder, sellable, price, modified, stage, set_id, title, notes)
+     values ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      on conflict (id) do update set name = excluded.name, ext = excluded.ext, size = excluded.size,
-       category = excluded.category, tags = excluded.tags, fav = excluded.fav, sellable = excluded.sellable, price = excluded.price, stage = excluded.stage, set_id = excluded.set_id, modified = coalesce(excluded.modified, ph_files.modified), prints = excluded.prints,
+       category = excluded.category, tags = excluded.tags, fav = excluded.fav, sellable = excluded.sellable, price = excluded.price, stage = excluded.stage, set_id = excluded.set_id, title = excluded.title, notes = excluded.notes, modified = coalesce(excluded.modified, ph_files.modified), prints = excluded.prints,
        project_id = excluded.project_id, source_path = coalesce(excluded.source_path, ph_files.source_path),
        subfolder = excluded.subfolder, updated_at = now()
-     returning id, name, ext, size, category, tags, fav, sellable, price, modified, stage, set_id, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb`, row)
+     returning id, name, ext, size, category, tags, fav, sellable, price, modified, stage, set_id, title, notes, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb`, row)
   return fileRow(saved)
 }
 
@@ -477,17 +481,20 @@ async function removeStored(blobPath) {
 const setRow = (r) => ({
   id: r.id, name: r.name, fav: !!r.fav, stage: STAGES.includes(r.stage) ? r.stage : 'raw',
   projectId: r.project_id || null, category: r.category, added: Number(r.added),
+  tags: Array.isArray(r.tags) ? r.tags : JSON.parse(r.tags || '[]'), notes: r.notes || '',
 })
 
 export async function saveSet(body) {
   const id = okId(body.id)
   const [saved] = await q(
-    `insert into ph_sets (id, name, fav, stage, project_id, category, added) values ($1,$2,$3,$4,$5,$6,$7)
+    `insert into ph_sets (id, name, fav, stage, project_id, category, added, tags, notes) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
      on conflict (id) do update set name = excluded.name, fav = excluded.fav, stage = excluded.stage,
-       project_id = excluded.project_id, category = excluded.category
-     returning id, name, fav, stage, project_id, category, added`,
+       project_id = excluded.project_id, category = excluded.category, tags = excluded.tags, notes = excluded.notes
+     returning id, name, fav, stage, project_id, category, added, tags, notes`,
     [id, str(body.name, 300) || 'Untitled set', !!body.fav, STAGES.includes(body.stage) ? body.stage : 'raw',
-      body.projectId ? okId(body.projectId) : null, CATS.includes(body.category) ? body.category : CATS[1], Number(body.added) || Date.now()])
+      body.projectId ? okId(body.projectId) : null, CATS.includes(body.category) ? body.category : CATS[1], Number(body.added) || Date.now(),
+      JSON.stringify([...new Set((Array.isArray(body.tags) ? body.tags : []).map((t) => str(t, 60).toLowerCase().replace(/^#+/, '').trim()).filter(Boolean))]),
+      str(body.notes, 4000)])
   return setRow(saved)
 }
 
