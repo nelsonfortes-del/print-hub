@@ -212,13 +212,14 @@ const fileRow = (r) => ({
 export async function loadAll() {
   // a set with no pieces left is gone
   await q('delete from ph_sets s where not exists (select 1 from ph_files f where f.set_id = s.id)')
-  const [files, printers, materials, projects, sets] = await Promise.all([
+  const [files, printers, materials, projects, sets, spools] = await Promise.all([
     q(`select id, name, ext, size, category, tags, fav, sellable, price, modified, stage, set_id, title, notes, added, prints, blob_path, project_id, source_path, subfolder, thumb_v, (thumb is not null) as has_thumb
        from ph_files order by added desc, id`),
     q('select id, name, nozzle, volume, notes from ph_printers order by sort, id'),
     q('select id, name, nozzle, bed, fan, notes from ph_materials order by sort, id'),
     q('select id, name, category, status, notes, keywords, folders from ph_projects order by sort, id'),
     q('select id, name, fav, stage, project_id, category, added, tags, notes from ph_sets order by added desc, id'),
+    q('select id, brand, material, color_name, color_hex, grams_left, spool_grams, cost, notes from ph_spools order by sort, id'),
   ])
   return {
     files: files.map(fileRow),
@@ -226,6 +227,7 @@ export async function loadAll() {
     materials: materials.map((m) => ({ ...m, nozzle: m.nozzle ?? '', bed: m.bed ?? '', fan: m.fan ?? '' })),
     projects: projects.map((p) => ({ ...p, folders: Array.isArray(p.folders) ? p.folders : JSON.parse(p.folders || '[]') })),
     sets: sets.map(setRow),
+    spools: spools.map(spoolRow),
     removed: await listRemoved(),
     storage: storageMode(),
     blobAccess: blobAccess(),
@@ -362,6 +364,26 @@ export async function saveMaterial(body) {
   return { ok: true }
 }
 
+// ---------- filament spools ----------
+
+const spoolRow = (r) => ({
+  id: r.id, brand: r.brand, material: r.material, colorName: r.color_name, colorHex: r.color_hex,
+  gramsLeft: Number(r.grams_left), spoolGrams: Number(r.spool_grams), cost: r.cost == null ? '' : Number(r.cost), notes: r.notes,
+})
+
+export async function saveSpool(body) {
+  const id = okId(body.id)
+  const hex = /^#[0-9a-fA-F]{6}$/.test(body.colorHex || '') ? body.colorHex.toLowerCase() : '#cccccc'
+  const grams = (v, d) => Math.max(0, Math.min(100000, int(v) ?? d))
+  const cost = Number(body.cost) > 0 ? Math.min(99999, Math.round(Number(body.cost) * 100) / 100) : null
+  await q(
+    `insert into ph_spools (id, brand, material, color_name, color_hex, grams_left, spool_grams, cost, notes, sort) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     on conflict (id) do update set brand = excluded.brand, material = excluded.material, color_name = excluded.color_name,
+       color_hex = excluded.color_hex, grams_left = excluded.grams_left, spool_grams = excluded.spool_grams, cost = excluded.cost, notes = excluded.notes`,
+    [id, str(body.brand, 80), str(body.material, 40) || 'PLA', str(body.colorName, 60), hex, grams(body.gramsLeft, 1000), Math.max(1, grams(body.spoolGrams, 1000)), cost, str(body.notes), Date.now()])
+  return { ok: true }
+}
+
 export async function saveProject(body) {
   const id = okId(body.id)
   await q(
@@ -410,7 +432,7 @@ export async function moveToFolder({ ids, subfolder }) {
   return { ok: true }
 }
 
-const PROFILE_TABLES = { printer: 'ph_printers', material: 'ph_materials', project: 'ph_projects' }
+const PROFILE_TABLES = { printer: 'ph_printers', material: 'ph_materials', project: 'ph_projects', spool: 'ph_spools' }
 export async function deleteProfile(kind, id) {
   id = okId(id)
   const table = PROFILE_TABLES[kind]

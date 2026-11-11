@@ -4,3 +4,8 @@ dist
 .env.*
 .vercel
 db/.local-files/
+
+# Impeccable: the engine binary downloads itself on first use; hook settings are per machine
+.claude/skills/impeccable/scripts/bin/
+.claude/settings.local.json
+.impeccable/config.local.json

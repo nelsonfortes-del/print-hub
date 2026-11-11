@@ -31,6 +31,12 @@ have tags and notes too. Search looks at names, titles and notes; the sidebar
 tag filter includes set tags. Titles and notes are hub-only: the file on your
 Mac isn't renamed.
 
+**Filament** (Settings): one row per spool with its color, material, brand,
+grams left (with a bar), full-spool grams and cost. Cost per gram is worked
+out from those (`costPerGram` in `src/FilamentPage.jsx`, for the Shop's cost
+calculator later). **Used ___ g** subtracts after a print; under 150 g a spool
+is marked Low. Stored in `ph_spools`. Printers are under **Printers**.
+
 **Sellable:** a gold shelf in the sidebar for prints that are clean, tested and
 worth selling. Open a file and press **+ Sellable**, then type an asking price;
 the price shows on the file's card. Stored as `ph_files.sellable` and

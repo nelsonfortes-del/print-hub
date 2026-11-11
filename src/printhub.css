@@ -505,3 +505,29 @@ span.ph-folder { padding: 0; gap: 0; }
   .ph-chip button { min-width: 32px; min-height: 32px; }
   .ph-check { width: 30px; height: 30px; }
 }
+
+/* Filament inventory */
+.ph-spools { display: flex; flex-direction: column; gap: 10px; }
+.ph-spool { display: grid; grid-template-columns: 52px minmax(0, 1fr) 36px; gap: 14px; align-items: start;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.ph-spool.is-low { border-color: color-mix(in srgb, var(--warn) 60%, var(--border)); }
+.ph-swatch { position: relative; width: 52px; height: 52px; border-radius: 50%; border: 3px solid var(--surface-2); box-shadow: inset 0 0 0 9px rgba(0,0,0,0.25); cursor: pointer; }
+.ph-swatch input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.ph-spool-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ph-spool-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ph-spool-color { flex: 2 1 180px; font-weight: 600; }
+.ph-spool-mat { flex: 0 1 120px; }
+.ph-spool-brand { flex: 1 1 120px; }
+.ph-spool-bar { flex: 1 1 140px; height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.ph-spool-bar span { display: block; height: 100%; border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4); }
+.ph-spool-num { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+.ph-spool-num .ph-input { width: 76px; text-align: right; }
+.ph-spool-cpg { font-size: 13px; color: var(--ink-2); }
+.ph-spool-notes { font-size: 14px; }
+.ph-low-tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: var(--warn); color: var(--bg); }
+.ph-low-text { color: var(--warn); font-weight: 600; }
+.ph-spool-x { font-size: 20px; }
+@media (max-width: 720px) {
+  .ph-spool { grid-template-columns: 44px minmax(0, 1fr) 36px; gap: 10px; padding: 12px; }
+  .ph-swatch { width: 44px; height: 44px; }
+}

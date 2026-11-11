@@ -2,7 +2,7 @@
 import {
   httpError, readRaw, blobToken, blobOn, databaseUrl,
   loadAll, listRemoved, saveSet, deleteSet, saveFile, attachFile, deleteFile, deleteFiles, markRemoved, fileForDownload, changeFolder, moveToFolder,
-  savePrinter, saveMaterial, saveProject, deleteProfile,
+  savePrinter, saveMaterial, saveProject, saveSpool, deleteProfile,
   saveLocal, openStored, MAX_FILE_BYTES, BLOB_PREFIX, saveThumb, readThumb,
 } from './_lib/printhub.js'
 import { cleanupScript } from '../src/cleanup.js'
@@ -20,7 +20,7 @@ import { cleanupScript } from '../src/cleanup.js'
 // /api/thumb?id=&v=             GET     preview picture;  PUT {id, type, data(base64)}
 // /api/sets                     PUT     save one set;  DELETE ?id= ungroup it
 // /api/cleanup-script           GET     the Mac cleanup script for the current list (run with bash <(curl …))
-// /api/printers | materials | projects  PUT     save one row;  DELETE ?id=
+// /api/printers | materials | projects | spools  PUT     save one row;  DELETE ?id=
 export default async function handler(req, res) {
   const resource = req.query.resource
   const method = req.method
@@ -131,7 +131,7 @@ export default async function handler(req, res) {
       return res.json(await saveLocal(req.query.id, String(req.query.name || ''), buf))
     }
 
-    const kinds = { printers: ['printer', savePrinter], materials: ['material', saveMaterial], projects: ['project', saveProject] }
+    const kinds = { printers: ['printer', savePrinter], materials: ['material', saveMaterial], projects: ['project', saveProject], spools: ['spool', saveSpool] }
     if (kinds[resource]) {
       const [kind, save] = kinds[resource]
       if (method === 'PUT') return res.json(await save(body))

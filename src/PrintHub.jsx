@@ -5,6 +5,7 @@ import { grabDropped, fromPicker, expand } from './collect'
 import { makeThumb, canThumb } from './thumbs'
 import { cleanupScript, downloadText } from './cleanup'
 import DuplicatesPage from './DuplicatesPage'
+import FilamentPage from './FilamentPage'
 import { useCardEntrance, useEntrance } from './motion'
 import {
   loadAll, saveFile, saveSet, deleteSet, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved, reportProblem, changeFolder, moveToFolder,
@@ -61,6 +62,7 @@ export default function PrintHub() {
   const [storage, setStorage] = useState('none')
   const [files, setFiles] = useState([])
   const [printers, setPrinters] = useState([])
+  const [spools, setSpools] = useState([]) // filament inventory
   const [materials, setMaterials] = useState([])
   const [projects, setProjects] = useState([])
   const [removed, setRemoved] = useState([]) // Mac cleanup list
@@ -104,6 +106,7 @@ export default function PrintHub() {
     setSets(data.sets || [])
     setPrinters(data.printers)
     setMaterials(data.materials)
+    setSpools(data.spools || [])
     setProjects(data.projects || [])
     setRemoved(data.removed || [])
     setDraft((d) => (data.printers.some((p) => p.name === d.printer) ? d : { ...d, printer: data.printers[0]?.name || '' }))
@@ -354,7 +357,7 @@ export default function PrintHub() {
 
   // Printer/material/project rows save a moment after you stop typing
   const profileTimers = useRef({})
-  const profiles = { printers: [printers, setPrinters], materials: [materials, setMaterials], projects: [projects, setProjects] }
+  const profiles = { printers: [printers, setPrinters], materials: [materials, setMaterials], projects: [projects, setProjects], spools: [spools, setSpools] }
   const editProfile = (kind, id, key, val) => {
     const [rows, setRows] = profiles[kind]
     const next = rows.map((r) => (r.id === id ? { ...r, [key]: val } : r))
@@ -601,6 +604,7 @@ export default function PrintHub() {
             <div className="ph-label">Settings</div>
             <NavItem label="Printers" count={printers.length} active={view === 'printers'} onClick={() => setView('printers')} />
             <NavItem label="Materials" count={materials.length} active={view === 'materials'} onClick={() => setView('materials')} />
+            <NavItem label="Filament" count={spools.length} active={view === 'filament'} onClick={() => setView('filament')} />
             <NavItem label="Duplicates" count="" active={view === 'duplicates'} onClick={() => setView('duplicates')} />
             <NavItem label="Mac cleanup" count={removed.length} active={view === 'cleanup'} onClick={() => setView('cleanup')} />
           </nav>
@@ -848,6 +852,11 @@ export default function PrintHub() {
             />
           )}
 
+          {load.state === 'ready' && view === 'filament' && (
+            <FilamentPage spools={spools} materials={materials} onEdit={editProfile} onRemove={removeProfile}
+              onAdd={() => addProfile('spools', { id: uid('sp'), brand: '', material: 'PLA', colorName: '', colorHex: '#cccccc', gramsLeft: 1000, spoolGrams: 1000, cost: '', notes: '' })} />
+          )}
+
           {load.state === 'ready' && view === 'materials' && (
             <ProfileTable
               title="Materials" addLabel="Add material"
@@ -887,7 +896,7 @@ export default function PrintHub() {
           <button disabled={view !== 'catalog' || !shown.length} onClick={() => { setSelecting(true); setMoreOpen(false) }}>
             <span aria-hidden="true">✓</span>Select
           </button>
-          <button className={moreOpen || ['printers', 'materials', 'duplicates', 'cleanup'].includes(view) ? 'is-on' : ''} onClick={() => setMoreOpen((v) => !v)}>
+          <button className={moreOpen || ['printers', 'materials', 'filament', 'duplicates', 'cleanup'].includes(view) ? 'is-on' : ''} onClick={() => setMoreOpen((v) => !v)}>
             <span aria-hidden="true">⋯</span>More
           </button>
         </nav>
@@ -896,7 +905,7 @@ export default function PrintHub() {
         <>
           <div className="ph-backdrop ph-sheet-backdrop" onClick={() => setMoreOpen(false)} />
           <div className="ph-sheet" role="dialog" aria-label="More" ref={sheetRef}>
-            {[['printers', 'Printers', printers.length], ['materials', 'Materials', materials.length], ['duplicates', 'Duplicates', ''], ['cleanup', 'Mac cleanup', removed.length]].map(([v, l, n]) => (
+            {[['printers', 'Printers', printers.length], ['materials', 'Materials', materials.length], ['filament', 'Filament', spools.length], ['duplicates', 'Duplicates', ''], ['cleanup', 'Mac cleanup', removed.length]].map(([v, l, n]) => (
               <button key={v} className={'ph-sheet-item' + (view === v ? ' is-on' : '')} onClick={() => { setView(v); setMoreOpen(false) }}>
                 <span>{l}</span><span className="ph-mono ph-nav-count">{n}</span>
               </button>
