@@ -10,6 +10,13 @@ material when logging a print fills in its temperatures.
 progress → Works / Done, or Stalled) and notes. If more than one Work project is
 In progress, the Projects page reminds you to finish one first.
 
+**Status:** every file is **Raw**, **Cleaned** or **Final**. New files are
+guessed from the name ("final" in it = Final, "clean" = Cleaned, else Raw);
+older files were guessed once the same way. **Mark Final** in a file's panel is
+one tap after a good print; Final files get a green badge and their own
+**Final** entry in the sidebar. Select mode has **Set status…** for many files.
+Stored as `ph_files.stage`.
+
 **Sellable:** a gold shelf in the sidebar for prints that are clean, tested and
 worth selling. Open a file and press **+ Sellable**, then type an asking price;
 the price shows on the file's card. Stored as `ph_files.sellable` and
