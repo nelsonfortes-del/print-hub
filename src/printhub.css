@@ -11,7 +11,7 @@
   --ink: #eef3fb;           /* main text */
   --ink-2: #c5d2e6;         /* secondary text */
   --muted: #9aadc9;         /* labels, counts */
-  --faint: #7489a8;
+  --faint: #8398b6;
   --accent: #2f6fe8;        /* buttons, selected */
   --accent-hover: #2560d0;
   --accent-text: #8ab8ff;   /* blue text on dark */
@@ -38,7 +38,7 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
   flex-direction: column;
   background: var(--bg);
   color: var(--ink);
-  font-family: 'Geist', system-ui, sans-serif;
+  font-family: 'Manrope', system-ui, sans-serif;
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
 }
@@ -47,7 +47,7 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
 .ph h1 { margin: 0; }
 .ph input, .ph select, .ph button { font-family: inherit; }
 .ph button { cursor: pointer; }
-.ph-mono { font-family: 'Geist Mono', ui-monospace, monospace; }
+.ph-mono { font-family: 'DM Mono', ui-monospace, monospace; }
 
 /* Header */
 .ph-header {
@@ -88,7 +88,7 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
 /* Sidebar */
 .ph-nav { display: flex; flex-direction: column; gap: 2px; }
 .ph-label {
-  font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; color: var(--muted);
+  font-family: 'DM Mono', ui-monospace, monospace; font-size: 13px; color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.06em; padding: 0 10px 8px;
 }
 .ph-nav-item {
@@ -126,7 +126,7 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
   background: repeating-linear-gradient(135deg, var(--stripe-a) 0 7px, var(--stripe-b) 7px 14px);
 }
 .ph-badge {
-  font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; color: var(--ink-2);
+  font-family: 'DM Mono', ui-monospace, monospace; font-size: 13px; color: var(--ink-2);
   background: var(--surface); padding: 2px 6px; border-radius: 4px;
 }
 .ph-badge-lg { font-size: 14px; padding: 3px 8px; }
@@ -206,7 +206,7 @@ html, body { margin: 0; background: var(--bg); color-scheme: dark; }
 .ph-btn-sm:hover { border-color: var(--accent); }
 .ph-btn-link { display: inline-flex; align-items: center; text-decoration: none; }
 .ph-banner {
-  border: 1px solid var(--border); border-left: 3px solid var(--danger); background: var(--surface); border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border-radius: 8px;
   padding: 10px 14px; font-size: 15px; color: var(--ink-2); margin-bottom: 20px;
 }
 .ph-btn-sm.ph-danger { color: var(--danger); }
@@ -299,7 +299,7 @@ select.ph-input { padding: 0 8px; }
 .ph-kw > span { flex: 0 0 auto; }
 .ph-kw-input {
   flex: 1; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
-  font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; color: var(--ink); background: var(--surface); outline: none;
+  font-family: 'DM Mono', ui-monospace, monospace; font-size: 13px; color: var(--ink); background: var(--surface); outline: none;
 }
 .ph-kw-input:focus { border-color: var(--accent); }
 
@@ -335,7 +335,7 @@ select.ph-input { padding: 0 8px; }
 .ph-card.is-picked .ph-check { background: var(--accent); border-color: var(--accent); }
 .ph-steps { margin: 0 0 20px; padding-left: 22px; display: flex; flex-direction: column; gap: 12px; font-size: 15px; color: var(--ink-2); line-height: 1.5; }
 .ph-steps li::marker { color: var(--muted); }
-.ph-code { font-family: 'Geist Mono', ui-monospace, monospace; background: var(--surface-2); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+.ph-code { font-family: 'DM Mono', ui-monospace, monospace; background: var(--surface-2); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
 .ph-cleanup-row { font-size: 15px; }
 
 /* Folders inside a project */
@@ -381,7 +381,7 @@ span.ph-folder { padding: 0; gap: 0; }
 .ph-nav-item.is-gold { color: var(--gold); }
 .ph-nav-item.is-gold.is-active { background: var(--gold-tint); color: var(--gold); }
 .ph-sell-tag {
-  position: absolute; top: 6px; left: 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600;
+  position: absolute; top: 6px; left: 6px; font-family: 'DM Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600;
   color: var(--bg); background: var(--gold); padding: 2px 7px; border-radius: 4px;
 }
 .ph-btn-sm.ph-btn-gold { color: var(--bg); background: var(--gold); border-color: var(--gold); }
