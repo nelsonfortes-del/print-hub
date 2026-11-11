@@ -17,6 +17,13 @@ one tap after a good print; Final files get a green badge and their own
 **Final** entry in the sidebar. Select mode has **Set status…** for many files.
 Stored as `ph_files.stage`.
 
+**Missing files** (Tidy up): files with a name in the hub but no stored 3D file
+(usually added before file storage worked). Cards say **File missing**; the list
+says how to fix them (Add folder, pick the folder they came from) and which folders
+they came from. Other picture-less cards say **Picture coming…**, **Uploading…** or
+**No picture** (it couldn't be drawn, or STEP). Preview failures no longer pop up a
+message on every load; they show on the card and in its panel.
+
 **Long names:** card names wrap to two lines. When several cards start the same way
 ("FLINT SORT CADDY - piece 2 - side strip"), each card leads with the part that
 differs and shows the shared start underneath. When 3 or more loose files share a
