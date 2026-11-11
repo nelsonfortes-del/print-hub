@@ -489,6 +489,7 @@ export default function PrintHub() {
     deleteSet(id).then(() => showToast(`Ungrouped ${set.name}`)).catch(saveFailed)
   }
   const [renamingSet, setRenamingSet] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false) // phone: the More sheet
   // Delete one or many; they go on the Mac cleanup list
   const removeFiles = (ids) => {
     const gone = filesRef.current.filter((f) => ids.includes(f.id))
@@ -612,6 +613,20 @@ export default function PrintHub() {
         </aside>
 
         <main className="ph-main">
+          {/* Phone: one swipeable row of filters instead of the sidebar */}
+          {load.state === 'ready' && view === 'catalog' && !curSet && (
+            <div className="ph-phone-filters" role="toolbar" aria-label="Filter files">
+              {['All', 'Favorites', 'Final', 'Sellable', ...CATS, 'Unsorted'].map((label) => (
+                <button key={label} className={'ph-fchip' + (!project && !tag && cat === label ? ' is-on' : '') + (label === 'Sellable' ? ' is-gold' : '')}
+                  onClick={() => { setCat(label); setProject(null); setTag(null); setOpenSet(null) }}>
+                  {label} <span className="ph-mono">{navCount(label)}</span>
+                </button>
+              ))}
+              {allTags.map((t) => (
+                <button key={t} className={'ph-fchip ph-fchip-tag' + (tag === t ? ' is-on' : '')} onClick={() => setTag(tag === t ? null : t)}>#{t}</button>
+              ))}
+            </div>
+          )}
           {load.state === 'loading' && <div className="ph-empty"><div>Loading your library…</div></div>}
           {load.state === 'error' && (
             <div className="ph-empty">
@@ -643,7 +658,7 @@ export default function PrintHub() {
                     {Object.entries(SORTS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                   </select>
                   <div className="ph-hint">Drop 3D files, folders or .zip files anywhere</div>
-                  {shown.length > 0 && !selecting && <button className="ph-btn-sm" onClick={() => setSelecting(true)}>Select</button>}
+                  {shown.length > 0 && !selecting && <button className="ph-btn-sm ph-desktop-only" onClick={() => setSelecting(true)}>Select</button>}
                 </div>
               </div>
               {curSet && (
@@ -855,6 +870,35 @@ export default function PrintHub() {
         </div>
       )}
 
+      {/* Phone: bottom bar within thumb reach */}
+      {!selecting && (
+        <nav className="ph-bottom-nav" aria-label="Main">
+          <button className={view === 'catalog' && !moreOpen ? 'is-on' : ''} onClick={() => { setView('catalog'); setOpenSet(null); setMoreOpen(false) }}>
+            <span aria-hidden="true">▦</span>Files
+          </button>
+          <button className={view === 'projects' && !moreOpen ? 'is-on' : ''} onClick={() => { setView('projects'); setMoreOpen(false) }}>
+            <span aria-hidden="true">◫</span>Projects
+          </button>
+          <button disabled={view !== 'catalog' || !shown.length} onClick={() => { setSelecting(true); setMoreOpen(false) }}>
+            <span aria-hidden="true">✓</span>Select
+          </button>
+          <button className={moreOpen || ['printers', 'materials', 'duplicates', 'cleanup'].includes(view) ? 'is-on' : ''} onClick={() => setMoreOpen((v) => !v)}>
+            <span aria-hidden="true">⋯</span>More
+          </button>
+        </nav>
+      )}
+      {moreOpen && (
+        <>
+          <div className="ph-backdrop ph-sheet-backdrop" onClick={() => setMoreOpen(false)} />
+          <div className="ph-sheet" role="dialog" aria-label="More">
+            {[['printers', 'Printers', printers.length], ['materials', 'Materials', materials.length], ['duplicates', 'Duplicates', ''], ['cleanup', 'Mac cleanup', removed.length]].map(([v, l, n]) => (
+              <button key={v} className={'ph-sheet-item' + (view === v ? ' is-on' : '')} onClick={() => { setView(v); setMoreOpen(false) }}>
+                <span>{l}</span><span className="ph-mono ph-nav-count">{n}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {toast && <div className="ph-toast">{toast}</div>}
 
       {selected && (
