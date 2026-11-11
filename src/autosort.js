@@ -34,3 +34,14 @@ export function matchProject(fileName, projects) {
   }
   return best
 }
+
+// Where a new file goes when nothing else decides: its project (from the file
+// name, else its folder names), the project folder whose name matches one of
+// its Mac folders, and a tag from its top folder ("labels/hits/x.stl" -> "labels").
+export function autoPlace(name, folder, projects) {
+  const project = (matchProject(name, projects) || matchProject(folder, projects))?.project || null
+  const segs = String(folder || '').split('/').map(normalize)
+  const subfolder = (project?.folders || []).find((fo) => segs.includes(normalize(fo))) || null
+  const tag = normalize(String(folder || '').split('/')[0]).replace(/ /g, '-').slice(0, 40)
+  return { project, subfolder, tag }
+}

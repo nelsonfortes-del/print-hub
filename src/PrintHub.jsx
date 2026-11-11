@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './printhub.css'
-import { matchProject, normalize } from './autosort'
+import { autoPlace, normalize } from './autosort'
 import { grabDropped, fromPicker, expand } from './collect'
 import { makeThumb, canThumb } from './thumbs'
 import { cleanupScript, downloadText } from './cleanup'
 import DuplicatesPage from './DuplicatesPage'
+import { TrashPage, MacLinkPage, linkHealth } from './TrashAndLink'
 import { useCardEntrance, useEntrance } from './motion'
 import {
-  loadAll, saveFile, saveSet, deleteSet, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, markRemoved, reportProblem, changeFolder, moveToFolder,
+  loadAll, saveFile, saveSet, deleteSet, saveProfile, deleteProfile, uploadFile, downloadUrl, thumbUrl, saveThumb, fetchStoredFile, deleteFiles, trashFiles, restoreFiles, emptyTrash, syncNow, markRemoved, reportProblem, changeFolder, moveToFolder,
 } from './store'
 
 // Print Hub: a catalog of 3D-print files with a print log per file, plus
@@ -64,6 +65,8 @@ export default function PrintHub() {
   const [materials, setMaterials] = useState([])
   const [projects, setProjects] = useState([])
   const [removed, setRemoved] = useState([]) // Mac cleanup list
+  const [trash, setTrash] = useState([])
+  const [link, setLink] = useState(null) // Mac link: { seen, status, inbox, scanPending }
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
   const [draft, setDraft] = useState(() => ({ printer: '', material: 'PLA', nozzle: 215, bed: 60, supports: 'None', result: 'Success', ...(readDraft() || {}) }))
@@ -106,11 +109,21 @@ export default function PrintHub() {
     setMaterials(data.materials)
     setProjects(data.projects || [])
     setRemoved(data.removed || [])
+    setTrash(data.trash || [])
+    setLink(data.link || null)
     setDraft((d) => (data.printers.some((p) => p.name === d.printer) ? d : { ...d, printer: data.printers[0]?.name || '' }))
     setLoad({ state: 'ready', error: '' })
   }, [])
   const fail = useCallback((e) => setLoad({ state: 'error', error: e.message || 'Could not reach the database' }), [])
   useEffect(() => { fetchLibrary().then(apply, fail) }, [apply, fail])
+  // Fresh data when coming back to the tab (files the Mac sent, link status),
+  // unless uploads or previews are in progress
+  const busyRef = useRef(false)
+  useEffect(() => {
+    const onShow = () => { if (document.visibilityState === 'visible' && !busyRef.current) fetchLibrary().then(apply, () => {}) }
+    document.addEventListener('visibilitychange', onShow)
+    return () => document.removeEventListener('visibilitychange', onShow)
+  }, [apply])
   const retry = () => { setLoad({ state: 'loading', error: '' }); fetchLibrary().then(apply, fail) }
 
   // Remember the last printer/material/temps on this device
@@ -135,6 +148,7 @@ export default function PrintHub() {
   const thumbBusy = useRef(false)
   const [thumbProgress, setThumbProgress] = useState(null) // { done, total }
   const [thumbErrors, setThumbErrors] = useState({}) // file id -> why its preview failed
+  useEffect(() => { busyRef.current = !!thumbProgress || Object.keys(uploading).length > 0 }, [thumbProgress, uploading])
   const runThumbs = useCallback(async () => {
     if (thumbBusy.current) return
     thumbBusy.current = true
@@ -244,14 +258,13 @@ export default function PrintHub() {
     const added = ok.map(({ file: f, folder }) => {
       const parts = f.name.split('.')
       const ext = parts.pop().toLowerCase()
-      // file name first; if it says nothing, the folder names can
-      const pr = dropProject || (matchProject(parts.join('.'), projects) || matchProject(folder, projects))?.project || null
+      const auto = autoPlace(parts.join('.'), folder, projects)
+      const pr = dropProject || auto.project
       // folder inside the project: the one being viewed, else a Mac subfolder with the same name
       const segs = folder.split('/').map(normalize)
       const sub = pr === dropProject && activeFolder && activeFolder !== LOOSE ? activeFolder
         : (pr?.folders || []).find((fo) => segs.includes(normalize(fo))) || null
-      // the top folder's name becomes a tag, e.g. "labels"
-      const folderTag = normalize(folder.split('/')[0]).replace(/ /g, '-').slice(0, 40)
+      const folderTag = auto.tag
       return {
         entry: {
           id: uid('f'), name: parts.join('.'),
@@ -495,18 +508,42 @@ export default function PrintHub() {
   const gridRef = useCardEntrance([view, cat, project, tag, openSet, sort, showPieces, q, activeFolder].join('|'))
   const sheetRef = useEntrance({ y: 24 }, moreOpen)
   const toastRef = useEntrance({ y: 12 }, toast)
-  // Delete one or many; they go on the Mac cleanup list
+  // Delete one or many: into the Trash (files from the Mac inbox also move
+  // into its _trash folder on the Mac)
   const removeFiles = (ids) => {
     const gone = filesRef.current.filter((f) => ids.includes(f.id))
     if (!gone.length) return
     const label = gone.length === 1 ? `"${gone[0].name}"` : `${gone.length} files`
-    if (!window.confirm(`Delete ${label} from Print Hub? They'll be added to the Mac cleanup list.`)) return
+    const now = Date.now()
     setFiles((fs) => fs.filter((f) => !ids.includes(f.id)))
-    setRemoved((r) => [...gone.map((f) => ({ id: f.id, name: f.name, ext: f.ext, size: f.size, sourcePath: f.sourcePath || null, removedAt: Date.now() })), ...r.filter((x) => !ids.includes(x.id))])
+    setTrash((t) => [...gone.map((f) => ({ ...f, trashedAt: now })), ...t])
     setSel(null)
     setPicked(new Set())
     setSelecting(false)
-    deleteFiles(ids).then(() => showToast(`Deleted ${label} · added to Mac cleanup`)).catch(saveFailed)
+    trashFiles(ids).then(() => showToast(`Moved ${label} to Trash`)).catch(saveFailed)
+  }
+  const restore = (ids) => {
+    const back = trash.filter((f) => ids.includes(f.id))
+    setTrash((t) => t.filter((f) => !ids.includes(f.id)))
+    setFiles((fs) => [...back.map((f) => ({ ...f, trashedAt: null })), ...fs])
+    restoreFiles(ids).then(() => showToast(`Restored ${back.length === 1 ? `"${back[0].name}"` : `${back.length} files`}`)).catch(saveFailed)
+  }
+  const deleteForever = (ids) => {
+    const gone = trash.filter((f) => ids.includes(f.id))
+    const label = gone.length === 1 ? `"${gone[0].name}"` : `${gone.length} files`
+    if (!window.confirm(`Delete ${label} for good? This can't be undone in Print Hub.`)) return
+    setTrash((t) => t.filter((f) => !ids.includes(f.id)))
+    deleteFiles(ids).then(() => showToast(`Deleted ${label} for good`)).catch(saveFailed)
+  }
+  const clearTrash = () => {
+    if (!window.confirm(`Empty the Trash? ${trash.length} file${trash.length === 1 ? '' : 's'} will be deleted for good.`)) return
+    setTrash([])
+    emptyTrash().then(() => showToast('Trash emptied')).catch(saveFailed)
+  }
+  const requestSync = () => {
+    setLink((l) => (l ? { ...l, scanPending: true } : l))
+    syncNow().then(() => showToast('Your Mac will sync within a minute')).catch(saveFailed)
+    setTimeout(() => { if (!busyRef.current) fetchLibrary().then(apply, () => {}) }, 75000)
   }
   const togglePick = (id) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
@@ -602,7 +639,9 @@ export default function PrintHub() {
             <NavItem label="Printers" count={printers.length} active={view === 'printers'} onClick={() => setView('printers')} />
             <NavItem label="Materials" count={materials.length} active={view === 'materials'} onClick={() => setView('materials')} />
             <NavItem label="Duplicates" count="" active={view === 'duplicates'} onClick={() => setView('duplicates')} />
-            <NavItem label="Mac cleanup" count={removed.length} active={view === 'cleanup'} onClick={() => setView('cleanup')} />
+            <NavItem label="Trash" count={trash.length || ''} active={view === 'trash'} onClick={() => setView('trash')} />
+            <NavItem label="Mac link" count={<span className={'ph-link-dot is-' + linkHealth(link).tone} />} active={view === 'link'} onClick={() => setView('link')} />
+            {removed.length > 0 && <NavItem label="Mac cleanup" count={removed.length} active={view === 'cleanup'} onClick={() => setView('cleanup')} />}
           </nav>
           {view === 'catalog' && allTags.length > 0 && (
             <div className="ph-tags-block">
@@ -840,6 +879,14 @@ export default function PrintHub() {
               }} />
           )}
 
+          {load.state === 'ready' && view === 'trash' && (
+            <TrashPage trash={trash} onRestore={restore} onDelete={deleteForever} onEmpty={clearTrash} />
+          )}
+
+          {load.state === 'ready' && view === 'link' && (
+            <MacLinkPage link={link} onSync={requestSync} />
+          )}
+
           {load.state === 'ready' && view === 'cleanup' && (
             <CleanupPage
               removed={removed}
@@ -887,7 +934,7 @@ export default function PrintHub() {
           <button disabled={view !== 'catalog' || !shown.length} onClick={() => { setSelecting(true); setMoreOpen(false) }}>
             <span aria-hidden="true">✓</span>Select
           </button>
-          <button className={moreOpen || ['printers', 'materials', 'duplicates', 'cleanup'].includes(view) ? 'is-on' : ''} onClick={() => setMoreOpen((v) => !v)}>
+          <button className={moreOpen || ['printers', 'materials', 'duplicates', 'trash', 'link', 'cleanup'].includes(view) ? 'is-on' : ''} onClick={() => setMoreOpen((v) => !v)}>
             <span aria-hidden="true">⋯</span>More
           </button>
         </nav>
@@ -896,7 +943,8 @@ export default function PrintHub() {
         <>
           <div className="ph-backdrop ph-sheet-backdrop" onClick={() => setMoreOpen(false)} />
           <div className="ph-sheet" role="dialog" aria-label="More" ref={sheetRef}>
-            {[['printers', 'Printers', printers.length], ['materials', 'Materials', materials.length], ['duplicates', 'Duplicates', ''], ['cleanup', 'Mac cleanup', removed.length]].map(([v, l, n]) => (
+            {[['printers', 'Printers', printers.length], ['materials', 'Materials', materials.length], ['duplicates', 'Duplicates', ''], ['trash', 'Trash', trash.length || ''],
+              ['link', 'Mac link', <span key="dot" className={'ph-link-dot is-' + linkHealth(link).tone} />], ...(removed.length ? [['cleanup', 'Mac cleanup', removed.length]] : [])].map(([v, l, n]) => (
               <button key={v} className={'ph-sheet-item' + (view === v ? ' is-on' : '')} onClick={() => { setView(v); setMoreOpen(false) }}>
                 <span>{l}</span><span className="ph-mono ph-nav-count">{n}</span>
               </button>

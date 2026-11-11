@@ -111,3 +111,22 @@ alter table ph_files add column if not exists title text not null default '';
 alter table ph_files add column if not exists notes text not null default '';
 alter table ph_sets add column if not exists tags jsonb not null default '[]';
 alter table ph_sets add column if not exists notes text not null default '';
+
+-- Mac link: files that came from the Mac's 3D inbox folder (path inside it)
+alter table ph_files add column if not exists inbox_path text;
+-- Trash: deleted files stay here 30 days (null = not in the trash)
+alter table ph_files add column if not exists trashed_at bigint;
+-- Where the file sits in the inbox's _trash folder once the Mac moved it
+alter table ph_files add column if not exists trash_path text;
+
+-- Jobs for the Mac link: trash (inbox -> _trash), restore (_trash -> inbox),
+-- purge (_trash -> the Mac's Trash)
+create table if not exists ph_link_tasks (
+  id bigserial primary key,
+  file_id text,
+  action text not null,
+  from_path text not null,
+  to_path text not null default '',
+  created_at bigint not null default 0,
+  done boolean not null default false
+);
