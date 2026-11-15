@@ -181,7 +181,8 @@ export default function PrintHub() {
     } finally {
       thumbBusy.current = false
       setThumbProgress(null)
-      if (failed) showToast(`${failed} preview${failed === 1 ? '' : 's'} couldn't be made: ${lastError}`, 8000)
+      // failures show on each card ("No picture") and in its panel, not as a toast on every load
+      if (failed) console.warn(`Print Hub: ${failed} preview(s) couldn't be made; last error: ${lastError}`)
     }
   }, [showToast])
   const retryThumb = (f) => {
@@ -532,8 +533,8 @@ export default function PrintHub() {
     : sort === 'oldest' ? (a, b) => fileDate(a) - fileDate(b)
     : (a, b) => fileDate(b) - fileDate(a)
   const shown = useMemo(() => (curSet ? files.filter((f) => f.setId === curSet.id) : files.filter((f) =>
-    (showPieces || !f.setId) &&
-    (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Sellable' ? f.sellable : cat === 'Final' ? f.stage === 'final' : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
+    (showPieces || !f.setId || cat === 'Missing') &&
+    (cat === 'All' || (cat === 'Favorites' ? f.fav : cat === 'Sellable' ? f.sellable : cat === 'Final' ? f.stage === 'final' : cat === 'Missing' ? !f.hasFile : cat === 'Unsorted' ? !f.projectId : f.category === cat)) &&
     (!project || f.projectId === project) &&
     (!activeFolder || (activeFolder === LOOSE ? !f.subfolder : f.subfolder === activeFolder)) &&
     (!tag || f.tags.includes(tag)) &&
@@ -542,7 +543,7 @@ export default function PrintHub() {
 
   // Set cards in the main list (one card per set), filtered like files
   const setCards = useMemo(() => {
-    if (curSet || showPieces || activeFolder) return []
+    if (curSet || showPieces || activeFolder || cat === 'Missing') return []
     return sets.map((st) => {
       const pieces = files.filter((f) => f.setId === st.id)
       return { ...st, pieces, setCard: true, added: st.added, modified: Math.max(0, ...pieces.map(fileDate)), allTags: [...new Set([...(st.tags || []), ...pieces.flatMap((f) => f.tags)])] }
@@ -591,9 +592,22 @@ export default function PrintHub() {
     label === 'All' ? files.length : label === 'Favorites' ? files.filter((f) => f.fav).length
       : label === 'Sellable' ? files.filter((f) => f.sellable).length
       : label === 'Final' ? files.filter((f) => f.stage === 'final').length
+      : label === 'Missing' ? files.filter((f) => !f.hasFile).length
       : label === 'Unsorted' ? files.filter((f) => !f.projectId).length : files.filter((f) => f.category === label).length
-  const catTitle = activeProject ? activeProject.name : cat === 'All' ? 'All files' : cat
+  const catTitle = activeProject ? activeProject.name : cat === 'All' ? 'All files' : cat === 'Missing' ? 'Missing files' : cat
   const projectFiles = activeProject ? files.filter((f) => f.projectId === activeProject.id) : []
+  // Missing files: which Mac folders they came from, so he knows what to re-add
+  const missingFrom = useMemo(() => {
+    if (cat !== 'Missing') return []
+    const c = new Map()
+    for (const f of files) {
+      if (f.hasFile) continue
+      const parts = (f.sourcePath || '').split('/')
+      const k = parts.length > 1 ? parts[0] : ''
+      c.set(k, (c.get(k) || 0) + 1)
+    }
+    return [...c.entries()].sort((a, b) => b[1] - a[1])
+  }, [files, cat])
   const heading = curSet ? curSet.name : tag ? `${catTitle} · #${tag}` : catTitle
   const selected = files.find((f) => f.id === sel)
 
@@ -632,6 +646,10 @@ export default function PrintHub() {
             <div className="ph-label">Tidy up</div>
             <NavItem label="Unsorted" attention count={navCount('Unsorted')} active={view === 'catalog' && !project && cat === 'Unsorted'}
               onClick={() => { setCat('Unsorted'); setProject(null); setOpenSet(null); setView('catalog') }} />
+            {navCount('Missing') > 0 && (
+              <NavItem label="Missing files" attention count={navCount('Missing')} active={view === 'catalog' && !project && cat === 'Missing'}
+                onClick={() => { setCat('Missing'); setProject(null); setOpenSet(null); setView('catalog') }} />
+            )}
             <NavItem label="Duplicates" count="" active={view === 'duplicates'} onClick={() => setView('duplicates')} />
             <NavItem label="Mac cleanup" attention count={removed.length} active={view === 'cleanup'} onClick={() => setView('cleanup')} />
           </nav>
@@ -672,8 +690,8 @@ export default function PrintHub() {
           {/* Phone: one swipeable row of filters instead of the sidebar */}
           {load.state === 'ready' && view === 'catalog' && !curSet && (
             <div className="ph-phone-filters" role="toolbar" aria-label="Filter files">
-              {['All', 'Unsorted', 'Favorites', 'Final', 'Sellable', ...CATS].map((label) => (
-                <button key={label} className={'ph-fchip' + (!project && !tag && cat === label ? ' is-on' : '') + (label === 'Sellable' ? ' is-gold' : '') + (label === 'Unsorted' && navCount('Unsorted') > 0 ? ' is-waiting' : '')}
+              {['All', 'Unsorted', ...(navCount('Missing') > 0 ? ['Missing'] : []), 'Favorites', 'Final', 'Sellable', ...CATS].map((label) => (
+                <button key={label} className={'ph-fchip' + (!project && !tag && cat === label ? ' is-on' : '') + (label === 'Sellable' ? ' is-gold' : '') + ((label === 'Unsorted' || label === 'Missing') && navCount(label) > 0 ? ' is-waiting' : '')}
                   onClick={() => { setCat(label); setProject(null); setTag(null); setOpenSet(null) }}>
                   {label} <span className="ph-mono">{navCount(label)}</span>
                 </button>
@@ -707,7 +725,7 @@ export default function PrintHub() {
                   )}
                 </div>
                 <div className="ph-head-actions">
-                  {!curSet && sets.length > 0 && (
+                  {!curSet && cat !== 'Missing' && sets.length > 0 && (
                     <label className="ph-toggle"><input type="checkbox" checked={showPieces} onChange={(e) => setShowPieces(e.target.checked)} /> Show set pieces</label>
                   )}
                   <select className="ph-proj-select" value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort files">
@@ -807,6 +825,17 @@ export default function PrintHub() {
                   <button className="ph-btn-link-sm" onClick={() => dismissSuggestion(setSuggestion.prefix)}>Not a set</button>
                 </div>
               )}
+              {cat === 'Missing' && shown.length > 0 && (
+                <div className="ph-project-notes">
+                  These files have a name here but no 3D file stored, so they have no picture and can't be downloaded. Most were added before file storage worked.
+                  {' '}<strong>To fix them:</strong> press <strong>Add folder</strong> and pick the folder they came from. The hub fills them in; nothing is doubled.
+                  {missingFrom.length > 0 && (
+                    <span className="ph-missing-from">
+                      {' '}They came from: {missingFrom.slice(0, 4).map(([k, n]) => `${k || 'loose files (no folder)'} (${n})`).join(', ')}{missingFrom.length > 4 ? ', and others' : ''}.
+                    </span>
+                  )}
+                </div>
+              )}
               {cat === 'Unsorted' && !activeProject && shown.length > 0 && (
                 <div className="ph-project-notes">These files didn't match any project's keywords. Open one to pick a project, or add keywords on the Projects page.</div>
               )}
@@ -829,7 +858,15 @@ export default function PrintHub() {
                         <div className={'ph-thumb' + (f.thumbV ? ' has-img' : '')}>
                           {f.thumbV
                             ? <><img className="ph-thumb-img" src={thumbUrl(f.id, f.thumbV)} alt="" loading="lazy" /><span className="ph-badge ph-badge-corner">{f.ext.toUpperCase()}</span></>
-                            : <span className="ph-badge">{f.ext.toUpperCase()}</span>}
+                            : <>
+                              <span className="ph-badge">{f.ext.toUpperCase()}</span>
+                              <span className={'ph-thumb-state' + (!f.hasFile ? ' is-missing' : '')}>
+                                {!f.hasFile ? 'File missing'
+                                  : uploading[f.id] != null ? 'Uploading…'
+                                  : thumbErrors[f.id] || !canThumb(f.ext) ? 'No picture'
+                                  : 'Picture coming…'}
+                              </span>
+                            </>}
                           <button className="ph-fav" style={{ color: f.fav ? BLUE : 'var(--muted)' }}
                             aria-label={f.fav ? 'Remove favorite' : 'Add favorite'}
                             onClick={(e) => { e.stopPropagation(); toggleFav(f.id) }}>{f.fav ? '★' : '☆'}</button>
